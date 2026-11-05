@@ -41,6 +41,8 @@ The page appears in the dashboard under **Advanced → Gap Finder**.
 
 - Grouped by series → season → episode, with completeness in percent and completely missing seasons marked
   (100 % only when nothing is missing, 0 % only when nothing is present)
+- Episodes without an air date (common for old series on TheTVDB) count as aired when the series has ended or a
+  later episode has already aired - Emby's own missing episodes list hides them
 - Filters for specials, upcoming episodes, continuing/ended series and completely missing seasons only;
   sorting by name, missing episodes, completeness or year
 - The series name opens the series in Emby; a TVDB or TMDB link (depending on the provider that supplies the

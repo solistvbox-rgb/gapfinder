@@ -613,7 +613,7 @@ namespace GapFinder.Api
                             FormatCode(e),
                             e.Name,
                             FormatDate(e.PremiereDate),
-                            ResultFilter.IsReleased(e.PremiereDate) ? "yes" : "no",
+                            ResultFilter.IsAired(e) ? "yes" : "no",
                             season.PresentCount == 0 ? "yes" : "no",
                             GetId(s.ProviderIds, "Tvdb"),
                             GetId(s.ProviderIds, "Tmdb"),

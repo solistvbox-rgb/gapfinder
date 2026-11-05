@@ -784,9 +784,14 @@
                 ignored.has(keys.episode(s.Id, e.SeasonNumber, e.EpisodeNumber));
         }
 
+        // Same rule as ResultFilter.IsAired: aired by date, or no date but assumed aired by the server.
+        function isEpisodeAired(e) {
+            return isReleased(e.PremiereDate) || !!e.AssumedAired;
+        }
+
         function isEpisodeVisible(s, e, f, ignored) {
             if (!f.specials && e.SeasonNumber === 0) { return false; }
-            if (!f.unaired && !isReleased(e.PremiereDate)) { return false; }
+            if (!f.unaired && !isEpisodeAired(e)) { return false; }
             return f.showIgnored || !isEpisodeIgnored(s, e, ignored);
         }
 

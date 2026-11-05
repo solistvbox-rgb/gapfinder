@@ -51,6 +51,8 @@ namespace GapFinder.Data
         public int? EpisodeNumberEnd { get; set; }
         public string Name { get; set; }
         public DateTimeOffset? PremiereDate { get; set; }
+        /// <summary>No air date, but counted as aired: the series has ended or a later episode has already aired.</summary>
+        public bool AssumedAired { get; set; }
         public string Overview { get; set; }
         public Dictionary<string, string> ProviderIds { get; set; } = new Dictionary<string, string>();
     }

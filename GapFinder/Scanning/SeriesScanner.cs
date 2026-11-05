@@ -214,7 +214,40 @@ namespace GapFinder.Scanning
                 season.Missing = season.Missing.OrderBy(e => e.EpisodeNumber).ToList();
             }
             result.Seasons = seasons.Values.ToList();
+            MarkAssumedAired(result.Seasons, string.Equals(result.Status, "Ended", StringComparison.OrdinalIgnoreCase),
+                remote.Where(e => e.IndexNumber.HasValue).Select(e => (e.ParentIndexNumber ?? 0, e.IndexNumber.Value, e.PremiereDate)),
+                DateTime.UtcNow);
             return result;
+        }
+
+        /// <summary>
+        /// Old series often lack air dates on the provider; Emby then never lists those episodes as missing. A missing
+        /// episode without a date counts as aired if the series has ended or a later regular episode (by season and
+        /// number) has already aired. Specials (season 0) only via "ended", since their order is not meaningful.
+        /// </summary>
+        public static void MarkAssumedAired(IEnumerable<SeasonResult> seasons, bool ended,
+            IEnumerable<(int Season, int Episode, DateTimeOffset? Date)> providerEpisodes, DateTime todayUtc)
+        {
+            long? latestAired = null;
+            foreach (var e in providerEpisodes)
+            {
+                if (e.Season > 0 && e.Date.HasValue && e.Date.Value.UtcDateTime.Date <= todayUtc.Date)
+                {
+                    var key = Key(e.Season, e.Episode);
+                    if (!latestAired.HasValue || key > latestAired.Value)
+                    {
+                        latestAired = key;
+                    }
+                }
+            }
+            foreach (var season in seasons)
+            {
+                foreach (var episode in season.Missing.Where(m => !m.PremiereDate.HasValue))
+                {
+                    episode.AssumedAired = ended
+                        || (episode.SeasonNumber > 0 && latestAired.HasValue && Key(episode.SeasonNumber, episode.EpisodeNumber) < latestAired.Value);
+                }
+            }
         }
 
         /// <summary>Season/episode of all local episodes, multi-episode files (E01-E02) expanded.</summary>

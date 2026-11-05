@@ -16,13 +16,16 @@ namespace GapFinder.Api
             return premiereDate.HasValue && premiereDate.Value.UtcDateTime.Date <= DateTime.UtcNow.Date;
         }
 
+        /// <summary>Aired: a date today or earlier, or no date but assumed aired (see SeriesScanner.MarkAssumedAired).</summary>
+        public static bool IsAired(MissingEpisode episode) => IsReleased(episode.PremiereDate) || episode.AssumedAired;
+
         public static bool IsEpisodeVisible(SeriesResult series, MissingEpisode episode, HashSet<string> ignored, bool includeSpecials, bool includeUnaired, bool includeIgnored)
         {
             if (!includeSpecials && episode.SeasonNumber == 0)
             {
                 return false;
             }
-            if (!includeUnaired && !IsReleased(episode.PremiereDate))
+            if (!includeUnaired && !IsAired(episode))
             {
                 return false;
             }
