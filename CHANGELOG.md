@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.0.0.2
+
+- Series: a "+N upcoming" button per series shows its upcoming episodes and episodes without an air date (only when
+  it has any). They stay hidden until clicked; the numbers in the card still count aired episodes only.
+- The date column now shows "upcoming <date>" (movies: "unreleased <date>") and "no date" in orange instead of a
+  label after the title.
+- The tagline "Find the missing pieces of your media library." is shown under the page title.
+- The expand arrows of the cards use Emby's own icons.
+
 ## 1.0.0.1
 
 - Missing episodes without an air date (common for old series on TheTVDB) are now shown as aired when the series

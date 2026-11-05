@@ -23,7 +23,8 @@
         .gfRoot h1 { font-size: 1.6em; font-weight: 600; margin: 0; }
         .gfRoot h2 { font-size: 1.1em; font-weight: 600; margin: 0 0 .6em; }
         .gfRoot .gf-muted { color: var(--gf-muted); }
-        .gfRoot .gf-topbar { display: flex; align-items: baseline; gap: .8em; flex-wrap: wrap; margin-bottom: 1em; }
+        .gfRoot .gf-topbar { display: flex; align-items: baseline; gap: .8em; flex-wrap: wrap; }
+        .gfRoot .gf-tagline { font-style: italic; margin: .15em 0 1em; }
 
         .gfRoot .gf-panel { background: var(--gf-panel); border: 1px solid var(--gf-border); border-radius: 8px; padding: 1em 1.1em; margin-bottom: 1em; }
         .gfRoot .gf-row { display: flex; align-items: center; gap: .8em; flex-wrap: wrap; }
@@ -100,7 +101,8 @@
         .gfRoot .gf-card-stats { display: flex; align-items: center; gap: .7em; flex: 0 0 auto; }
         .gfRoot .gf-card-stats .gf-progress { flex: 0 0 110px; }
         .gfRoot .gf-pct { width: 3.2em; text-align: right; font-size: .9em; color: var(--gf-muted); }
-        .gfRoot .gf-chevron { width: 1em; color: var(--gf-muted); transition: transform .15s; }
+        /* Emby's own icon font (md-icon), same chevron as the metadata manager tree */
+        .gfRoot .gf-chevron { flex: 0 0 auto; font-size: 1.6em; line-height: 1; color: var(--gf-muted); transition: transform .15s; }
         .gfRoot .gf-card.open .gf-chevron { transform: rotate(90deg); }
         .gfRoot .gf-card-body { border-top: 1px solid var(--gf-border); padding: .5em .8em .7em 1em; }
 
@@ -112,6 +114,9 @@
         .gfRoot .gf-ep-code { font-family: Consolas, monospace; width: 7.5em; flex: 0 0 7.5em; color: var(--gf-accent-2); }
         .gfRoot .gf-ep-name { flex: 1 1 auto; min-width: 0; }
         .gfRoot .gf-ep-date { flex: 0 0 auto; color: var(--gf-muted); font-size: .9em; }
+        .gfRoot .gf-ep-date.gf-date-flag { color: var(--gf-warn); }
+        .gfRoot .gf-upcoming-toggle { color: var(--gf-accent-2); cursor: pointer; margin-left: .3em; white-space: nowrap; }
+        .gfRoot .gf-upcoming-toggle:hover, .gfRoot .gf-upcoming-toggle:focus-visible { text-decoration: underline; outline: none; }
         .gfRoot .gf-movie-thumb { width: 34px; height: 51px; border-radius: 3px; object-fit: cover; background: var(--gf-panel-2); flex: 0 0 34px; }
         .gfRoot .gf-present { margin-top: .5em; font-size: .92em; line-height: 1.6; }
         /* Text links to Emby (series, collection, movie) */
@@ -148,6 +153,7 @@
         @media (max-width: 700px) {
             .gfRoot .gf-card-stats .gf-progress, .gfRoot .gf-pct { display: none; }
             .gfRoot .gf-ep-date { display: none; }
+            .gfRoot .gf-ep-date.gf-date-flag { display: inline; }
             .gfRoot details.gf-nodata ul { columns: 1; }
         }
     </style>
@@ -157,6 +163,7 @@
         <h1>Gap Finder</h1>
         <span class="gf-muted" id="gfVersion"></span>
       </div>
+      <div class="gf-muted gf-tagline">Find the missing pieces of your media library.</div>
 
       <!-- Search -->
       <div class="gf-panel">
@@ -348,7 +355,7 @@
           </div>
         </div>
 
-        <div class="gf-row gf-muted gf-hint">API keys are stored encrypted on the server (AES, key file in the plugin data folder) and are never sent back to the browser.</div>
+        <div class="gf-row gf-muted gf-hint">API keys are stored encrypted on the server and are never sent back to the browser.</div>
         <div class="gf-row">
           <button type="button" class="gf-btn primary" id="gfOptSave">Save</button>
           <span class="gf-status" id="gfOptStatus"></span>

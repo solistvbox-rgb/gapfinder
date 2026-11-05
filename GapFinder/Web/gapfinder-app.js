@@ -20,7 +20,8 @@
             tab: 'series',
             status: null,
             pollTimer: null,
-            series: { results: null, ignored: new Set(), open: new Set(), limit: PAGE_SIZE },
+            // showUpcoming: series whose upcoming/undated episodes are shown via "+N upcoming" (this page view only).
+            series: { results: null, ignored: new Set(), open: new Set(), showUpcoming: new Set(), limit: PAGE_SIZE },
             // openDetails: expanded hint lists at the bottom of the collections tab ("removed"/"wrong") stay open after re-rendering.
             // embyCollections: TMDB id of the collection -> Emby collection ({ Id, Name, MatchCount }) for the links.
             movies: { results: null, ignored: new Set(), open: new Set(), openDetails: new Set(), limit: PAGE_SIZE, embyCollections: {} },
@@ -784,6 +785,13 @@
                 ignored.has(keys.episode(s.Id, e.SeasonNumber, e.EpisodeNumber));
         }
 
+        // Date column: aired/released = grey date; a future date ("upcoming"/"unreleased") or no date in orange.
+        function dateCellHtml(date, futureLabel) {
+            if (!date) { return '<span class="gf-ep-date gf-date-flag"><i>no date</i></span>'; }
+            if (!isReleased(date)) { return '<span class="gf-ep-date gf-date-flag">' + futureLabel + ' ' + esc(formatDate(date)) + '</span>'; }
+            return '<span class="gf-ep-date">' + esc(formatDate(date)) + '</span>';
+        }
+
         // Same rule as ResultFilter.IsAired: aired by date, or no date but assumed aired by the server.
         function isEpisodeAired(e) {
             return isReleased(e.PremiereDate) || !!e.AssumedAired;
@@ -810,29 +818,36 @@
                 if (seriesIgnored && !f.showIgnored) { return; }
 
                 var seriesMatches = !f.query || matches(s.Name, f.query);
+                var queryMatch = function (e) { return seriesMatches || matches(e.Name, f.query) || matches(episodeCode(e), f.query); };
+                // Upcoming/undated episodes hidden by the filter: counted for "+N upcoming", shown only on request.
+                var withUnaired = f.unaired ? null : Object.assign({}, f, { unaired: true });
+                var showUpcoming = !!withUnaired && state.series.showUpcoming.has(s.Id);
                 var present = 0;
                 var missing = 0;
+                var upcoming = 0;
                 var fullSeasons = 0;
                 var seasons = [];
 
                 (s.Seasons || []).forEach(function (season) {
                     if (season.SeasonNumber === 0 && !f.specials) { return; }
-                    var eps = (season.Missing || []).filter(function (e) { return isEpisodeVisible(s, e, f, ignored); });
+                    var eps = (season.Missing || []).filter(function (e) { return isEpisodeVisible(s, e, f, ignored) && queryMatch(e); });
+                    var upEps = !withUnaired ? [] : (season.Missing || []).filter(function (e) {
+                        return !isEpisodeAired(e) && isEpisodeVisible(s, e, withUnaired, ignored) && queryMatch(e);
+                    });
                     var isFull = season.PresentCount === 0 && eps.length > 0;
                     if (f.onlyFullSeasons && !isFull) { return; }
-                    if (!seriesMatches) {
-                        eps = eps.filter(function (e) { return matches(e.Name, f.query) || matches(episodeCode(e), f.query); });
-                    }
                     present += season.PresentCount;
-                    if (!eps.length) { return; }
+                    upcoming += upEps.length;
+                    if (!eps.length && !(showUpcoming && upEps.length)) { return; }
                     missing += eps.length;
                     if (isFull) { fullSeasons++; }
-                    seasons.push({ season: season, episodes: eps, isFull: isFull });
+                    var shown = showUpcoming ? eps.concat(upEps).sort(function (a, b) { return a.EpisodeNumber - b.EpisodeNumber; }) : eps;
+                    seasons.push({ season: season, episodes: shown, missingCount: eps.length, upcomingCount: showUpcoming ? upEps.length : 0, isFull: isFull });
                 });
 
                 if (!missing) { return; }
-                list.push({ s: s, seasons: seasons, present: present, missing: missing, fullSeasons: fullSeasons,
-                    pct: pct(present, missing), ignored: seriesIgnored });
+                list.push({ s: s, seasons: seasons, present: present, missing: missing, upcoming: upcoming, showUpcoming: showUpcoming,
+                    fullSeasons: fullSeasons, pct: pct(present, missing), ignored: seriesIgnored });
             });
 
             list.sort(function (a, b) {
@@ -898,11 +913,14 @@
             if (s.Year) { sub.push(s.Year); }
             if (s.Status) { sub.push(s.Status === 'Ended' ? 'Ended' : (s.Status === 'Continuing' ? 'Continuing' : esc(s.Status))); }
             if (s.LibraryName) { sub.push(esc(s.LibraryName)); }
-            sub.push(x.present + ' of ' + (x.present + x.missing) + ' episodes');
+            sub.push(x.present + ' of ' + (x.present + x.missing) + ' episodes' +
+                (x.upcoming ? ' <span class="gf-upcoming-toggle" role="button" tabindex="0" data-toggle-upcoming="' + esc(s.Id) + '" title="' +
+                    (x.showUpcoming ? 'Hide the upcoming episodes and episodes without air date' : 'Show the upcoming episodes and episodes without air date of this series') + '">' +
+                    (x.showUpcoming ? 'hide upcoming' : '+' + x.upcoming + ' upcoming') + '</span>' : ''));
 
             var html = '<div class="gf-card' + (open ? ' open' : '') + (x.ignored ? ' ignored' : '') + '" data-series="' + esc(s.Id) + '">' +
                 '<div class="gf-card-head" data-toggle-series="' + esc(s.Id) + '">' +
-                '<span class="gf-chevron">&#9656;</span>' +
+                '<i class="md-icon gf-chevron" aria-hidden="true">chevron_right</i>' +
                 '<img class="gf-poster" loading="lazy" src="' + esc(imageUrl(s.Id, 120)) + '" alt="" onerror="this.style.visibility=\'hidden\'" />' +
                 '<div class="gf-card-title"><div class="gf-name"><span class="gf-col-link" role="link" tabindex="0" data-open-item="' + esc(s.Id) + '" title="Open series in Emby">' +
                 esc(s.Name) + '</span></div><div class="gf-sub">' + sub.join(' &middot; ') + '</div></div>' +
@@ -929,9 +947,13 @@
             var seasonKey = keys.season(s.Id, season.SeasonNumber);
             var seasonIgnored = ignoredSet.has(seasonKey);
             var title = season.SeasonNumber === 0 ? 'Specials' : 'Season ' + season.SeasonNumber;
+            var upcomingInfo = entry.upcomingCount ? ', ' + entry.upcomingCount + ' upcoming' : '';
             var info = entry.isFull
-                ? '<span class="gf-badge info">completely missing &middot; ' + entry.episodes.length + ' episodes</span>'
-                : '<span class="gf-muted" style="font-weight:normal;">' + entry.episodes.length + ' missing, ' + season.PresentCount + ' in library</span>';
+                ? '<span class="gf-badge info">completely missing &middot; ' + entry.missingCount + ' episodes</span>' +
+                    (entry.upcomingCount ? ' <span class="gf-muted" style="font-weight:normal;">' + entry.upcomingCount + ' upcoming</span>' : '')
+                : entry.missingCount
+                    ? '<span class="gf-muted" style="font-weight:normal;">' + entry.missingCount + ' missing, ' + season.PresentCount + ' in library' + upcomingInfo + '</span>'
+                    : '<span class="gf-muted" style="font-weight:normal;">' + entry.upcomingCount + ' upcoming</span>';
 
             var html = '<div class="gf-season"><div class="gf-season-head">' + esc(title) + ' ' + info +
                 '<span style="flex:1 1 auto;"></span>' +
@@ -944,9 +966,8 @@
                 var ownIgnored = ignoredSet.has(epKey);
                 html += '<div class="gf-ep' + (epIgnored ? ' ignored' : '') + '"' + (e.Overview ? ' title="' + esc(e.Overview) + '"' : '') + '>' +
                     '<span class="gf-ep-code">' + esc(episodeCode(e)) + '</span>' +
-                    '<span class="gf-ep-name">' + esc(e.Name || '(no title)') +
-                    (isReleased(e.PremiereDate) ? '' : ' <span class="gf-badge">' + (e.PremiereDate ? 'upcoming' : 'no date') + '</span>') + '</span>' +
-                    '<span class="gf-ep-date">' + esc(formatDate(e.PremiereDate)) + '</span>' +
+                    '<span class="gf-ep-name">' + esc(e.Name || '(no title)') + '</span>' +
+                    dateCellHtml(e.PremiereDate, 'upcoming') +
                     '<button type="button" class="gf-btn small link" data-ignore="' + esc(epKey) + '" data-ignore-state="' + (ownIgnored ? '0' : '1') + '">' +
                     (ownIgnored ? 'Unignore' : 'Ignore') + '</button>' +
                     '</div>';
@@ -1140,7 +1161,7 @@
 
             var html = '<div class="gf-card' + (open ? ' open' : '') + (x.ignored ? ' ignored' : '') + '">' +
                 '<div class="gf-card-head" data-toggle-collection="' + esc(c.TmdbId) + '">' +
-                '<span class="gf-chevron">&#9656;</span>' +
+                '<i class="md-icon gf-chevron" aria-hidden="true">chevron_right</i>' +
                 '<img class="gf-poster" loading="lazy" src="' + esc(poster) + '" alt="" onerror="this.style.visibility=\'hidden\'" />' +
                 '<div class="gf-card-title"><div class="gf-name">' + collectionNameHtml(c.TmdbId, c.Name) + '</div><div class="gf-sub">' +
                 x.present + ' of ' + (x.present + x.missing.length) + ' movies in library</div></div>' +
@@ -1162,9 +1183,8 @@
                     var ignored = isMovieIgnored(c, m, state.movies.ignored);
                     html += '<div class="gf-ep' + (ignored ? ' ignored' : '') + '"' + (m.Overview ? ' title="' + esc(m.Overview) + '"' : '') + '>' +
                         '<img class="gf-movie-thumb" loading="lazy" src="' + esc(m.ThumbnailUrl || '') + '" alt="" onerror="this.style.visibility=\'hidden\'" />' +
-                        '<span class="gf-ep-name">' + esc(m.Name) + (m.Year ? ' <span class="gf-muted">(' + m.Year + ')</span>' : '') +
-                        (isReleased(m.PremiereDate) ? '' : ' <span class="gf-badge">' + (m.PremiereDate ? 'unreleased' : 'no date') + '</span>') + '</span>' +
-                        '<span class="gf-ep-date">' + esc(formatDate(m.PremiereDate)) + '</span>' +
+                        '<span class="gf-ep-name">' + esc(m.Name) + (m.Year ? ' <span class="gf-muted">(' + m.Year + ')</span>' : '') + '</span>' +
+                        dateCellHtml(m.PremiereDate, 'unreleased') +
                         (m.TmdbId ? radarrButtonHtml(m) : '') +
                         (m.TmdbId ? '<a class="gf-btn small link" style="text-decoration:none;" target="_blank" rel="noopener" href="https://www.themoviedb.org/movie/' +
                             encodeURIComponent(m.TmdbId) + '">TMDB</a>' : '') +
@@ -1321,6 +1341,8 @@
             // Series and collection links also open with the keyboard.
             [$('#gfSeriesList'), $('#gfMoviesList')].forEach(function (list) {
                 list.addEventListener('keydown', function (ev) {
+                    var upcomingToggle = ev.key === 'Enter' && ev.target.closest('.gf-upcoming-toggle');
+                    if (upcomingToggle) { ev.preventDefault(); upcomingToggle.click(); return; }
                     var link = ev.key === 'Enter' && ev.target.closest('.gf-col-link[data-open-item]');
                     if (link) { ev.preventDefault(); ev.stopPropagation(); showItem(link.getAttribute('data-open-item')); }
                 });
@@ -1388,6 +1410,13 @@
                     var more = target.closest('[data-more]');
                     if (more) {
                         if (more.getAttribute('data-more') === 'series') { state.series.limit += PAGE_SIZE; renderSeries(); } else { state.movies.limit += PAGE_SIZE; renderMovies(); }
+                        return;
+                    }
+                    var toggleUpcoming = target.closest('[data-toggle-upcoming]');
+                    if (toggleUpcoming) {
+                        var uid = toggleUpcoming.getAttribute('data-toggle-upcoming');
+                        if (state.series.showUpcoming.has(uid)) { state.series.showUpcoming.delete(uid); } else { state.series.showUpcoming.add(uid); }
+                        renderSeries();
                         return;
                     }
                     var toggleSeries = target.closest('[data-toggle-series]');
