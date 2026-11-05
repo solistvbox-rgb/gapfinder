@@ -1,0 +1,357 @@
+    <style>
+        /* Everything is scoped under .gfRoot so nothing leaks into the rest of the dashboard. Backgrounds and
+           borders are semi-transparent so they fit light and dark Emby themes. */
+        .gfRoot { --gf-panel: rgba(128,128,128,0.08); --gf-panel-2: rgba(128,128,128,0.18);
+            --gf-field-bg: rgba(0,0,0,0.15); --gf-border: rgba(128,128,128,0.4);
+            --gf-text: #e6e9ef; --gf-muted: #9aa4b2;
+            /* Accent color from Emby (Settings > Display > Accent color): the same theme variables as Emby's own
+               buttons (.button-submit); the values after the comma are only a fallback without an Emby theme. */
+            --gf-accent-h: var(--theme-primary-color-hue, 196); --gf-accent-s: var(--theme-primary-color-saturation, 100%);
+            --gf-accent-l: var(--theme-primary-color-lightness, 43%);
+            --gf-accent: hsl(var(--gf-accent-h), var(--gf-accent-s), var(--gf-accent-l));
+            --gf-accent-soft: hsla(var(--gf-accent-h), var(--gf-accent-s), var(--gf-accent-l), .2);
+            --gf-on-accent: #fff;
+            /* Accent as text color (links, codes): Emby's variant for dark and light backgrounds. */
+            --gf-accent-2: var(--theme-accent-text-color-darkbg, var(--theme-accent-text-color, #3fc1ff));
+            --gf-ok: #4caf50; --gf-warn: #e0a83c; --gf-danger: #d9534f;
+            color: var(--gf-text); max-width: 1180px; margin: 0; }
+        /* Light theme: applyBackgroundAwareTheme() in gapfinder-app.js sets .gf-light-bg. */
+        .gfRoot.gf-light-bg { --gf-text: #1b1f26; --gf-muted: #5b6472;
+            --gf-accent-2: var(--theme-accent-text-color-lightbg, var(--theme-accent-text-color, #0090c4));
+            --gf-ok: #2e7d32; --gf-warn: #9a6b12; --gf-danger: #c0392b; --gf-field-bg: rgba(255,255,255,0.6); }
+        .gfRoot * { box-sizing: border-box; }
+        .gfRoot h1 { font-size: 1.6em; font-weight: 600; margin: 0; }
+        .gfRoot h2 { font-size: 1.1em; font-weight: 600; margin: 0 0 .6em; }
+        .gfRoot .gf-muted { color: var(--gf-muted); }
+        .gfRoot .gf-topbar { display: flex; align-items: baseline; gap: .8em; flex-wrap: wrap; margin-bottom: 1em; }
+
+        .gfRoot .gf-panel { background: var(--gf-panel); border: 1px solid var(--gf-border); border-radius: 8px; padding: 1em 1.1em; margin-bottom: 1em; }
+        .gfRoot .gf-row { display: flex; align-items: center; gap: .8em; flex-wrap: wrap; }
+        .gfRoot .gf-row + .gf-row { margin-top: .8em; }
+        .gfRoot .gf-label { min-width: 7.5em; color: var(--gf-muted); font-size: .95em; }
+
+        .gfRoot .gf-btn { background: var(--gf-panel-2); color: var(--gf-text); border: 1px solid var(--gf-border);
+            border-radius: 4px; padding: .5em .9em; cursor: pointer; font-size: 1em; font-family: inherit;
+            /* Also applies to links (<a class="gf-btn">) so they look like buttons - overrides Emby's link color. */
+            display: inline-block; line-height: normal; text-decoration: none; }
+        .gfRoot .gf-btn:hover { border-color: var(--gf-accent); }
+        .gfRoot .gf-btn.primary { background: var(--gf-accent); border-color: var(--gf-accent); color: var(--gf-on-accent); font-weight: 600; }
+        .gfRoot .gf-btn.danger { background: transparent; border-color: var(--gf-danger); color: var(--gf-danger); }
+        .gfRoot .gf-btn.small { padding: .3em .6em; font-size: .88em; }
+        .gfRoot .gf-btn.link { background: transparent; border-color: transparent; color: var(--gf-accent-2); padding: .3em .4em; }
+        .gfRoot .gf-btn.link:hover { text-decoration: underline; }
+        .gfRoot button.gf-btn[disabled] { opacity: .45; cursor: default; }
+
+        .gfRoot .gf-seg { display: inline-flex; border: 1px solid var(--gf-border); border-radius: 4px; overflow: hidden; }
+        .gfRoot .gf-seg button { background: var(--gf-panel-2); color: var(--gf-muted); border: 0; border-right: 1px solid var(--gf-border);
+            padding: .5em 1em; cursor: pointer; font-weight: 600; font-size: .95em; font-family: inherit; }
+        .gfRoot .gf-seg button:last-child { border-right: 0; }
+        .gfRoot .gf-seg button.active { background: var(--gf-accent); color: var(--gf-on-accent); }
+
+        .gfRoot .gf-chips { display: flex; flex-wrap: wrap; gap: .4em; }
+        .gfRoot .gf-chip { display: inline-flex; align-items: center; gap: .35em; padding: .3em .7em; border-radius: 999px;
+            border: 1px solid var(--gf-border); background: var(--gf-panel-2); cursor: pointer; font-size: .92em; user-select: none; }
+        .gfRoot .gf-chip.active { border-color: var(--gf-accent); background: var(--gf-accent-soft); color: var(--gf-accent-2); }
+        .gfRoot .gf-chip .gf-chip-type { color: var(--gf-muted); font-size: .85em; }
+
+        .gfRoot select.gf-select, .gfRoot input.gf-input { background: var(--gf-field-bg); border: 1px solid var(--gf-border); color: var(--gf-text);
+            border-radius: 4px; padding: .45em .6em; font-size: 1em; font-family: inherit; }
+        .gfRoot select.gf-select option { color: #000; }
+        .gfRoot input.gf-input { min-width: 16em; flex: 1 1 16em; }
+        .gfRoot label.gf-check { display: inline-flex; align-items: center; gap: .35em; cursor: pointer; font-size: .95em; user-select: none; }
+
+        .gfRoot .gf-progress { height: 8px; border-radius: 4px; background: var(--gf-panel-2); overflow: hidden; flex: 1 1 200px; min-width: 120px; }
+        .gfRoot .gf-progress > div { height: 100%; background: var(--gf-accent); transition: width .3s; }
+        .gfRoot .gf-progress.ok > div { background: var(--gf-ok); }
+        .gfRoot .gf-progress.warn > div { background: var(--gf-warn); }
+        .gfRoot .gf-status { font-size: .93em; }
+        /* Search progress: fixed bar width; the status text (with the changing title) takes the rest and is
+           truncated - otherwise the bar width would jump with every title. Error messages may wrap. */
+        .gfRoot #gfScanProgress { flex: 0 0 240px; min-width: 0; }
+        .gfRoot #gfScanStatus { flex: 1 1 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .gfRoot #gfScanStatus.gf-error { white-space: normal; }
+        .gfRoot .gf-error { color: var(--gf-danger); }
+        .gfRoot .gf-warnbox { border: 1px solid var(--gf-warn); border-left-width: 4px; border-radius: 4px; padding: .6em .9em; margin: 0 0 1em;
+            background: rgba(224,168,60,.08); }
+        .gfRoot .gf-warnbox ul { margin: .4em 0 .4em 1.2em; padding: 0; }
+        .gfRoot .gf-warnbox .gf-muted { font-size: .9em; }
+
+        .gfRoot .gf-tabs { display: flex; gap: .3em; border-bottom: 1px solid var(--gf-border); margin-bottom: .8em; }
+        .gfRoot .gf-tab { background: transparent; border: 0; border-bottom: 3px solid transparent; color: var(--gf-muted);
+            padding: .6em 1em; cursor: pointer; font-size: 1.05em; font-weight: 600; font-family: inherit; }
+        .gfRoot .gf-tab.active { color: var(--gf-text); border-bottom-color: var(--gf-accent); }
+        .gfRoot .gf-badge { display: inline-block; min-width: 1.6em; padding: .05em .45em; border-radius: 999px; background: var(--gf-panel-2);
+            font-size: .82em; text-align: center; margin-left: .3em; font-weight: 600; }
+        .gfRoot .gf-badge.warn { background: rgba(224,168,60,.25); color: var(--gf-warn); }
+        .gfRoot .gf-badge.ok { background: rgba(76,175,80,.22); color: var(--gf-ok); }
+        .gfRoot .gf-badge.info { background: var(--gf-accent-soft); color: var(--gf-accent-2); }
+
+        .gfRoot .gf-toolbar { display: flex; flex-wrap: wrap; gap: .6em .9em; align-items: center; margin-bottom: .7em; }
+        .gfRoot .gf-summary { margin: .2em 0 .8em; font-size: .95em; }
+
+        .gfRoot .gf-card { border: 1px solid var(--gf-border); border-radius: 6px; background: var(--gf-panel); margin-bottom: .5em; }
+        .gfRoot .gf-card.ignored { opacity: .55; }
+        .gfRoot .gf-card-head { display: flex; align-items: center; gap: .8em; padding: .55em .7em; cursor: pointer; }
+        .gfRoot .gf-card-head:hover { background: var(--gf-panel-2); }
+        .gfRoot .gf-poster { width: 40px; height: 60px; border-radius: 3px; object-fit: cover; background: var(--gf-panel-2); flex: 0 0 40px; }
+        .gfRoot .gf-card-title { flex: 1 1 auto; min-width: 0; }
+        .gfRoot .gf-card-title .gf-name { font-weight: 600; font-size: 1.05em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .gfRoot .gf-card-title .gf-sub { font-size: .88em; color: var(--gf-muted); margin-top: .15em; }
+        .gfRoot .gf-card-stats { display: flex; align-items: center; gap: .7em; flex: 0 0 auto; }
+        .gfRoot .gf-card-stats .gf-progress { flex: 0 0 110px; }
+        .gfRoot .gf-pct { width: 3.2em; text-align: right; font-size: .9em; color: var(--gf-muted); }
+        .gfRoot .gf-chevron { width: 1em; color: var(--gf-muted); transition: transform .15s; }
+        .gfRoot .gf-card.open .gf-chevron { transform: rotate(90deg); }
+        .gfRoot .gf-card-body { border-top: 1px solid var(--gf-border); padding: .5em .8em .7em 1em; }
+
+        .gfRoot .gf-season { margin: .4em 0 .6em; }
+        .gfRoot .gf-season-head { display: flex; align-items: center; gap: .6em; font-weight: 600; padding: .25em 0; }
+        .gfRoot .gf-ep { display: flex; align-items: center; gap: .8em; padding: .3em .4em; border-radius: 4px; }
+        .gfRoot .gf-ep:hover { background: var(--gf-panel-2); }
+        .gfRoot .gf-ep.ignored { opacity: .5; }
+        .gfRoot .gf-ep-code { font-family: Consolas, monospace; width: 7.5em; flex: 0 0 7.5em; color: var(--gf-accent-2); }
+        .gfRoot .gf-ep-name { flex: 1 1 auto; min-width: 0; }
+        .gfRoot .gf-ep-date { flex: 0 0 auto; color: var(--gf-muted); font-size: .9em; }
+        .gfRoot .gf-movie-thumb { width: 34px; height: 51px; border-radius: 3px; object-fit: cover; background: var(--gf-panel-2); flex: 0 0 34px; }
+        .gfRoot .gf-present { margin-top: .5em; font-size: .92em; line-height: 1.6; }
+        /* Text links to Emby (series, collection, movie) */
+        .gfRoot .gf-col-link { cursor: pointer; text-decoration: underline dotted; text-underline-offset: 3px; }
+        .gfRoot .gf-col-link:hover, .gfRoot .gf-col-link:focus-visible { color: var(--gf-accent-2); text-decoration-style: solid; outline: none; }
+        .gfRoot .gf-sep { color: var(--gf-muted); }
+        .gfRoot .gf-empty { padding: 2em 1em; text-align: center; color: var(--gf-muted); }
+        .gfRoot .gf-more { text-align: center; margin: .8em 0; }
+        .gfRoot details.gf-nodata { margin-top: 1em; }
+        .gfRoot details.gf-nodata summary { cursor: pointer; color: var(--gf-muted); }
+        .gfRoot details.gf-nodata ul { margin: .5em 0 0 1.2em; padding: 0; columns: 2; font-size: .92em; }
+        .gfRoot .gf-outdated { margin: .5em 0 0 .4em; font-size: .92em; }
+        /* Fixed columns: name | movies or collection (wraps) | buttons - the buttons line up in every row */
+        .gfRoot .gf-outdated-row { display: grid; grid-template-columns: minmax(0, 22em) minmax(0, 1fr) auto; align-items: baseline;
+            gap: .3em 1.2em; padding: .35em 0; border-bottom: 1px solid var(--gf-panel-2); }
+        .gfRoot .gf-outdated-movies { line-height: 1.6; }
+        .gfRoot .gf-outdated-actions { display: flex; gap: .4em; justify-content: flex-end; white-space: nowrap; }
+        @media (max-width: 700px) {
+            .gfRoot .gf-outdated-row { grid-template-columns: minmax(0, 1fr); }
+            .gfRoot .gf-outdated-actions { justify-content: flex-start; }
+        }
+        .gfRoot .gf-outdated-row.gf-ignored-row { opacity: .55; }
+        .gfRoot .gf-hint { font-size: .88em; font-weight: normal; }
+        .gfRoot .gf-disabled { opacity: .5; cursor: default; }
+        .gfRoot .gf-ok-text { color: var(--gf-ok); }
+        .gfRoot .gf-arr-status { font-size: .85em; }
+        .gfRoot .gf-notice-overlay { position: fixed; inset: 0; background: rgba(0,0,0,.45); z-index: 1000;
+            display: flex; align-items: center; justify-content: center; padding: 1em; }
+        .gfRoot .gf-notice { background: var(--gf-notice-bg, #1f2329); color: var(--gf-text); border: 1px solid var(--gf-border);
+            border-radius: 8px; padding: 1.1em 1.2em; max-width: 34em; width: 100%; box-shadow: 0 8px 30px rgba(0,0,0,.4); }
+        .gfRoot.gf-light-bg .gf-notice { --gf-notice-bg: #fff; }
+        .gfRoot .gf-notice-body { margin: .3em 0 1em; }
+
+        @media (max-width: 700px) {
+            .gfRoot .gf-card-stats .gf-progress, .gfRoot .gf-pct { display: none; }
+            .gfRoot .gf-ep-date { display: none; }
+            .gfRoot details.gf-nodata ul { columns: 1; }
+        }
+    </style>
+
+    <div class="gfRoot">
+      <div class="gf-topbar">
+        <h1>Gap Finder</h1>
+        <span class="gf-muted" id="gfVersion"></span>
+      </div>
+
+      <!-- Search -->
+      <div class="gf-panel">
+        <h2>Search</h2>
+        <div class="gf-row">
+          <span class="gf-label">Search for</span>
+          <div class="gf-seg" id="gfModeSeg">
+            <button type="button" data-mode="series">Series</button>
+            <button type="button" data-mode="movies">Movie collections</button>
+            <button type="button" data-mode="both">Both</button>
+          </div>
+        </div>
+        <div class="gf-row">
+          <span class="gf-label">Libraries</span>
+          <div class="gf-chips" id="gfLibraries"></div>
+        </div>
+        <div class="gf-row">
+          <span class="gf-label">Parallel requests</span>
+          <select class="gf-select" id="gfParallel">
+            <option value="1">1</option><option value="2">2</option><option value="3">3</option><option value="4">4</option>
+            <option value="5">5</option><option value="6">6</option><option value="8">8</option>
+          </select>
+          <span class="gf-muted" style="font-size:.88em;">Higher = faster, but more load on TheTVDB/TMDB.</span>
+        </div>
+        <div class="gf-row" style="margin-top:1em;">
+          <button type="button" class="gf-btn primary" id="gfStartBtn">Start search</button>
+          <button type="button" class="gf-btn" id="gfClearBtn" title="Delete the saved results of both tabs. The ignore list is kept.">Clear search</button>
+          <button type="button" class="gf-btn danger" id="gfCancelBtn" style="display:none;">Cancel</button>
+          <div class="gf-progress" id="gfScanProgress" style="display:none;"><div style="width:0%"></div></div>
+          <span class="gf-status" id="gfScanStatus"></span>
+        </div>
+      </div>
+
+      <!-- Results -->
+      <div class="gf-tabs">
+        <button type="button" class="gf-tab active" data-tab="series">Series <span class="gf-badge" id="gfSeriesBadge">0</span></button>
+        <button type="button" class="gf-tab" data-tab="movies">Movie collections <span class="gf-badge" id="gfMoviesBadge">0</span></button>
+        <button type="button" class="gf-tab" data-tab="options">Options</button>
+      </div>
+
+      <div id="gfSeriesTab">
+        <div class="gf-toolbar">
+          <input type="search" class="gf-input" id="gfSeriesSearch" placeholder="Filter series or episode..." />
+          <select class="gf-select" id="gfSeriesSort">
+            <option value="name">Name</option>
+            <option value="missing">Most missing</option>
+            <option value="completeness">Least complete</option>
+            <option value="year">Newest first</option>
+          </select>
+          <select class="gf-select" id="gfSeriesStatus">
+            <option value="">All series</option>
+            <option value="Continuing">Continuing only</option>
+            <option value="Ended">Ended only</option>
+          </select>
+        </div>
+        <div class="gf-toolbar">
+          <label class="gf-check"><input type="checkbox" id="gfSpecials" /> Specials (season 0)</label>
+          <label class="gf-check"><input type="checkbox" id="gfUnaired" /> Upcoming / no air date</label>
+          <label class="gf-check"><input type="checkbox" id="gfOnlyFullSeasons" /> Only completely missing seasons</label>
+          <label class="gf-check"><input type="checkbox" id="gfSeriesIgnored" /> Show ignored</label>
+          <span style="flex:1 1 auto;"></span>
+          <button type="button" class="gf-btn small" data-expand="series">Expand all</button>
+          <button type="button" class="gf-btn small" data-collapse="series">Collapse all</button>
+          <button type="button" class="gf-btn small" data-export="series" data-format="csv">Export CSV</button>
+          <button type="button" class="gf-btn small" data-export="series" data-format="json">Export JSON</button>
+        </div>
+        <div class="gf-summary gf-muted" id="gfSeriesSummary"></div>
+        <div id="gfSeriesList"></div>
+      </div>
+
+      <div id="gfMoviesTab" style="display:none;">
+        <div class="gf-toolbar">
+          <input type="search" class="gf-input" id="gfMoviesSearch" placeholder="Filter collection or movie..." />
+          <select class="gf-select" id="gfMoviesSort">
+            <option value="name">Name</option>
+            <option value="missing">Most missing</option>
+            <option value="completeness">Least complete</option>
+          </select>
+        </div>
+        <div class="gf-toolbar">
+          <label class="gf-check"><input type="checkbox" id="gfUnreleased" /> Unreleased / no date</label>
+          <label class="gf-check"><input type="checkbox" id="gfMoviesIgnored" /> Show ignored</label>
+          <span style="flex:1 1 auto;"></span>
+          <button type="button" class="gf-btn small" data-expand="movies">Expand all</button>
+          <button type="button" class="gf-btn small" data-collapse="movies">Collapse all</button>
+          <button type="button" class="gf-btn small" data-export="movies" data-format="csv">Export CSV</button>
+          <button type="button" class="gf-btn small" data-export="movies" data-format="json">Export JSON</button>
+        </div>
+        <div class="gf-summary gf-muted" id="gfMoviesSummary"></div>
+        <div id="gfMoviesList"></div>
+      </div>
+
+      <!-- Options: saved via POST /GapFinder/Options (PluginConfiguration) -->
+      <div id="gfOptionsTab" style="display:none;">
+        <div class="gf-panel">
+          <h2>Logging</h2>
+          <div class="gf-row">
+            <span class="gf-label">Log level</span>
+            <select class="gf-select" id="gfOptLogLevel">
+              <option value="All">All</option>
+              <option value="Errors">Errors (incl. warnings)</option>
+              <option value="Nothing">Nothing</option>
+            </select>
+            <span class="gf-muted gf-hint">What Gap Finder writes to the Emby server log. Takes effect immediately.</span>
+          </div>
+        </div>
+
+        <div class="gf-panel" data-arr="Sonarr">
+          <h2>Sonarr <span class="gf-muted gf-hint">(series)</span></h2>
+          <div class="gf-row">
+            <label class="gf-check"><input type="checkbox" class="gfOptEnabled" /> Enable Sonarr</label>
+          </div>
+          <div class="gf-row">
+            <span class="gf-label">Connection</span>
+            <label class="gf-check"><input type="radio" name="gfOptSonarrMode" value="Link" checked /> Link</label>
+            <label class="gf-check"><input type="radio" name="gfOptSonarrMode" value="Api" /> API</label>
+          </div>
+          <div class="gf-row">
+            <span class="gf-label">Address</span>
+            <input type="url" class="gf-input gfOptUrl" placeholder="http://nas:8989" />
+            <button type="button" class="gf-btn small gfOptOpen">Open</button>
+          </div>
+          <div class="gf-row gf-muted gf-hint gfOptLinkHint">Link: adds a "Find in Sonarr" button to every series. It opens Sonarr's "Add new series" search with the TheTVDB id &ndash; adding is then done in Sonarr. No API key needed.</div>
+          <div class="gfOptApi" style="display:none;">
+            <div class="gf-row">
+              <span class="gf-label">API key</span>
+              <input type="password" class="gf-input gfOptKey" autocomplete="new-password" placeholder="Sonarr &gt; Settings &gt; General &gt; API Key" />
+              <label class="gf-check gfOptKeyClearWrap" style="display:none;"><input type="checkbox" class="gfOptKeyClear" /> Remove saved key</label>
+            </div>
+            <div class="gf-row gf-muted gf-hint gfOptKeyInfo"></div>
+            <div class="gf-row">
+              <button type="button" class="gf-btn small gfOptTest">Test connection</button>
+              <span class="gf-status gfOptTestResult"></span>
+            </div>
+            <div class="gf-row">
+              <label class="gf-check"><input type="checkbox" class="gfOptSearchNow" /> Monitor the missing episodes and search for them right away</label>
+            </div>
+            <div class="gf-row gf-muted gf-hint">API: the "Send to Sonarr" button of a series sends its currently shown missing episodes to Sonarr (by season/episode, checked against air date and title; unclear ones are skipped). Series that are not in Sonarr yet open the "Add new series" search instead.</div>
+          </div>
+        </div>
+
+        <div class="gf-panel" data-arr="Radarr">
+          <h2>Radarr <span class="gf-muted gf-hint">(movies)</span></h2>
+          <div class="gf-row">
+            <label class="gf-check"><input type="checkbox" class="gfOptEnabled" /> Enable Radarr</label>
+          </div>
+          <div class="gf-row">
+            <span class="gf-label">Connection</span>
+            <label class="gf-check"><input type="radio" name="gfOptRadarrMode" value="Link" checked /> Link</label>
+            <label class="gf-check"><input type="radio" name="gfOptRadarrMode" value="Api" /> API</label>
+          </div>
+          <div class="gf-row">
+            <span class="gf-label">Address</span>
+            <input type="url" class="gf-input gfOptUrl" placeholder="http://nas:7878" />
+            <button type="button" class="gf-btn small gfOptOpen">Open</button>
+          </div>
+          <div class="gf-row gf-muted gf-hint gfOptLinkHint">Link: adds a "Find in Radarr" button to every missing movie. It opens Radarr's "Add new movie" search with the TMDB id &ndash; adding is then done in Radarr. No API key needed.</div>
+          <div class="gfOptApi" style="display:none;">
+            <div class="gf-row">
+              <span class="gf-label">API key</span>
+              <input type="password" class="gf-input gfOptKey" autocomplete="new-password" placeholder="Radarr &gt; Settings &gt; General &gt; API Key" />
+              <label class="gf-check gfOptKeyClearWrap" style="display:none;"><input type="checkbox" class="gfOptKeyClear" /> Remove saved key</label>
+            </div>
+            <div class="gf-row gf-muted gf-hint gfOptKeyInfo"></div>
+            <div class="gf-row">
+              <button type="button" class="gf-btn small gfOptTest">Test connection</button>
+              <span class="gf-status gfOptTestResult"></span>
+            </div>
+            <div class="gf-row">
+              <span class="gf-label">Quality profile</span>
+              <select class="gf-select gfOptProfile"><option value="0">(test connection first)</option></select>
+            </div>
+            <div class="gf-row">
+              <span class="gf-label">Root folder</span>
+              <select class="gf-select gfOptRoot"><option value="">(test connection first)</option></select>
+            </div>
+            <div class="gf-row">
+              <span class="gf-label">Availability</span>
+              <select class="gf-select gfOptAvailability">
+                <option value="announced">Announced</option>
+                <option value="inCinemas">In cinemas</option>
+                <option value="released">Released</option>
+              </select>
+            </div>
+            <div class="gf-row">
+              <label class="gf-check"><input type="checkbox" class="gfOptSearchNow" /> Search for the movie right after adding it</label>
+            </div>
+            <div class="gf-row gf-muted gf-hint">API: "Send to Radarr" buttons for every missing movie and "Send all to Radarr" per collection. Movies already in Radarr are reported, not added twice.</div>
+          </div>
+        </div>
+
+        <div class="gf-row gf-muted gf-hint">API keys are stored encrypted on the server (AES, key file in the plugin data folder) and are never sent back to the browser.</div>
+        <div class="gf-row">
+          <button type="button" class="gf-btn primary" id="gfOptSave">Save</button>
+          <span class="gf-status" id="gfOptStatus"></span>
+        </div>
+      </div>
+    </div>

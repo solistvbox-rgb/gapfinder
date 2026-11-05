@@ -1,0 +1,13 @@
+# Build output
+bin/
+obj/
+*.zip
+
+# Release packages are built, not committed
+release/
+
+# Test results / IDE
+TestResults/
+.vs/
+.vscode/
+*.user

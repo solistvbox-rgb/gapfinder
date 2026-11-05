@@ -1,0 +1,62 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFrameworks>netstandard2.0</TargetFrameworks>
+    <AssemblyName>GapFinder</AssemblyName>
+    <RootNamespace>GapFinder</RootNamespace>
+    <AssemblyVersion>1.0.0.0</AssemblyVersion>
+    <FileVersion>1.0.0.0</FileVersion>
+    <Product>Gap Finder</Product>
+    <Authors>SolisTVBox</Authors>
+    <Copyright>Copyright (c) 2026 SolisTVBox</Copyright>
+    <Description>Admin-only dashboard plugin that finds missing episodes/seasons of series and missing movies of movie collections, with filters and CSV/JSON export.</Description>
+    <LangVersion>latest</LangVersion>
+    <Nullable>disable</Nullable>
+
+    <!--
+      No debug file (.pdb): the compiler would embed its build path (including the user folder) in the DLL.
+      Deterministic + PathMap: identical sources produce a byte-identical DLL without local paths.
+    -->
+    <DebugType>none</DebugType>
+    <DebugSymbols>false</DebugSymbols>
+    <Deterministic>true</Deterministic>
+    <PathMap>$(MSBuildProjectDirectory)=.</PathMap>
+
+    <!--
+      Optional: copy the plugin into the plugins folder of an Emby Server after every build, e.g.
+      dotnet build -c Release -p:EmbyPluginsPath=<programdata>\plugins
+    -->
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!--
+      4.10.0.24 is the oldest SDK with IProviderManager.GetAllItems(BoxSet, ...) (movie collections). The
+      reference sets the minimum server version: .NET does not load Emby assemblies older than referenced here.
+      Do not raise it while Emby 4.10 servers are supported.
+    -->
+    <PackageReference Include="MediaBrowser.Server.Core" Version="4.10.0.24-beta2" />
+
+    <!-- MediaBrowser.Model uses ReadOnlyMemory<> (not part of netstandard2.0). -->
+    <PackageReference Include="System.Memory" Version="4.6.3" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!--
+      Dashboard page: gapfinder.html + gapfinder.js are a fixed loader that loads gapfinder-ui.html and
+      gapfinder-app.js with the build id in the URL, so the browser cache never serves stale files after an update.
+    -->
+    <EmbeddedResource Include="Web\gapfinder.html" />
+    <EmbeddedResource Include="Web\gapfinder.js" />
+    <EmbeddedResource Include="Web\gapfinder-ui.html" />
+    <EmbeddedResource Include="Web\gapfinder-app.js" />
+    <EmbeddedResource Include="thumb.webp" />
+  </ItemGroup>
+
+  <Target Name="CopyToEmbyPlugins" AfterTargets="Build" Condition="'$(EmbyPluginsPath)' != ''">
+    <ItemGroup>
+      <PluginOutputFiles Include="$(TargetDir)GapFinder.dll" />
+    </ItemGroup>
+    <Copy SourceFiles="@(PluginOutputFiles)" DestinationFolder="$(EmbyPluginsPath)" />
+  </Target>
+
+</Project>

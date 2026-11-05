@@ -1,0 +1,92 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>MM XSS harness</title></head>
+<body style="background:#222">
+<div id="view"><div class="gfMount"></div></div>
+<pre id="report" style="color:#0f0"></pre>
+<script>
+// Harness: loads the REAL files gapfinder-ui.html + gapfinder-app.js with a mocked Emby API.
+window.__gfXss = [];
+function P(field) {
+  return '"\'><img src=x data-mmxss="' + field + '" onerror="window.__gfXss.push(\'' + field + '\')"><script>window.__gfXss.push(\'' + field + '-script\')<\/script><svg onload="window.__gfXss.push(\'' + field + '-svg\')">';
+}
+var future = '2999-01-01T00:00:00Z', past = '2001-01-01T00:00:00Z';
+var data = {
+  'GapFinder/Libraries': [{ Id: P('libId'), Name: P('libName'), CollectionType: 'tvshows', CanContainSeries: true, CanContainMovies: true }],
+  'GapFinder/Settings': { ScanSeries: true, ScanMovies: true, LibraryIds: [P('libId')], MaxParallelRequests: 3, Version: P('version'), BuildId: 'x' },
+  'GapFinder/Options': { LogLevel: P('loglevel'),
+    Sonarr: { Enabled: true, Mode: 'Api', Url: 'javascript:window.__gfXss.push("sonarrUrl")//', HasApiKey: true, SearchNow: true },
+    Radarr: { Enabled: true, Mode: 'Link', Url: 'javascript:window.__gfXss.push("radarrUrl")//', HasApiKey: false, QualityProfileId: 3, QualityProfileName: P('profileName'), RootFolder: P('rootFolder'), MinimumAvailability: 'released' } },
+  'GapFinder/Status': { IsRunning: false, LastError: P('lastError') },
+  'GapFinder/Results/Series': { IgnoredKeys: [], Results: { ScanDateUtc: past, LibraryNames: [P('resLibName')], Series: [
+    { Id: P('seriesId'), Name: P('seriesName'), Year: 2000, Status: P('status'), LibraryName: P('seriesLib'), ProviderIds: { Tvdb: P('tvdb') },
+      Seasons: [{ SeasonNumber: 1, PresentCount: 0, Missing: [{ SeasonNumber: 1, EpisodeNumber: 1, Name: P('epName'), Overview: P('epOverview'), PremiereDate: past }] }] },
+    { Id: P('noDataId'), Name: P('noDataName'), NoProviderData: true, Error: P('seriesError') } ] } },
+  'GapFinder/Results/Movies': { IgnoredKeys: [], Results: { ScanDateUtc: past, LibraryNames: [P('movLibName')], Collections: [
+    { TmdbId: P('colTmdb'), Name: P('colName'), Present: [{ Id: P('presentId'), Name: P('presentName'), Year: 2000 }],
+      Missing: [{ TmdbId: P('movTmdb'), Name: P('movName'), Overview: P('movOverview'), PremiereDate: past, ThumbnailUrl: 'javascript:window.__gfXss.push("thumb")' },
+                { TmdbId: '1', Name: 'x', PremiereDate: past, ThumbnailUrl: P('thumb2') }],
+      WronglyAssigned: [{ Id: P('wrongId'), Name: P('wrongName') }] },
+    { TmdbId: '99', Name: P('errColName'), Error: P('colError') },
+    { TmdbId: P('remTmdb'), Name: P('remName'), RemovedFromTmdb: true, Present: [{ Id: '5', Name: P('remPresent') }] } ] } }
+};
+function respond(path) {
+  var key = path.split('?')[0];
+  if (!(key in data)) { return Promise.reject(new Error('no mock ' + key)); }
+  return Promise.resolve(JSON.parse(JSON.stringify(data[key])));
+}
+window.ApiClient = {
+  getUrl: function (p, params) { return p + (params ? '?' + new URLSearchParams(params) : ''); },
+  getJSON: respond,
+  getImageUrl: function (id) { return 'about:blank#' + encodeURIComponent(id); },
+  serverId: function () { return 's'; },
+  getCurrentUser: function () { return Promise.resolve({ Policy: { IsAdministrator: true } }); },
+  ajax: function (o) {
+    if (o.url.indexOf('Arr/Test') === 0) { return Promise.resolve({ Ok: true, Message: P('testMsg'), QualityProfiles: [{ id: 3, name: P('qpName') }], RootFolders: [{ path: P('rootPath') }] }); }
+    if (o.url.indexOf('Sonarr/Search') === 0) { return Promise.resolve({ Status: 'notInSonarr', Message: P('sonarrMsg'), AddUrl: 'javascript:window.__gfXss.push("addUrl")' }); }
+    if (o.url.indexOf('Radarr/Add') === 0) { return Promise.resolve([{ TmdbId: P('movTmdb'), Status: 'error', Message: P('radarrMsg') }]); }
+    if (o.url.indexOf('GapFinder/Scan') === 0) { return Promise.reject({ status: 400, text: function () { return Promise.resolve(P('scanErr')); } }); }
+    return Promise.resolve({});
+  }
+};
+window.Emby = { importModule: function () { return Promise.reject(new Error('n/a')); } };
+window.confirm = function () { return true; };
+window.alert = function () {};
+var factory;
+window.define = function (deps, f) { factory = f; };
+</script>
+<script src="gapfinder-app.js"></script>
+<script>
+fetch('gapfinder-ui.html').then(function (r) { return r.text(); }).then(function (html) {
+  document.querySelector('.gfMount').innerHTML = html;
+  var App = factory();
+  App(document.getElementById('view'));
+  setTimeout(function () {
+    var q = function (s) { return document.querySelector(s); };
+    document.querySelectorAll('[data-expand]').forEach(function (b) { b.click(); });
+    document.querySelectorAll('details').forEach(function (d) { d.open = true; });
+    // Actions whose responses end up in the DOM
+    var t = q('[data-tab="options"]'); if (t) { t.click(); }
+    document.querySelectorAll('.gfOptTest').forEach(function (b) { b.click(); });
+    var s = q('[data-sonarr-search]'); if (s) { s.click(); }
+    var r = q('[data-radarr-add]'); if (r) { r.click(); }
+    var st = q('#gfStartBtn'); if (st) { st.disabled = false; st.click(); }
+    setTimeout(function () {
+      // Click links with a javascript: scheme (they would run if allowed)
+      var jsLinks = Array.from(document.querySelectorAll('a[href]')).filter(function (a) { return /^\s*javascript:/i.test(a.getAttribute('href')); });
+      jsLinks.forEach(function (a) { a.click(); });
+      setTimeout(function () {
+        var injected = document.querySelectorAll('[data-mmxss], .gfMount script, .gfMount svg');
+        document.getElementById('report').textContent = JSON.stringify({
+          executed: window.__gfXss,
+          injectedElements: injected.length,
+          javascriptLinks: jsLinks.map(function (a) { return a.className + ' -> ' + a.getAttribute('href').slice(0, 40); }),
+          imgSrcJavascript: Array.from(document.querySelectorAll('img')).filter(function (i) { return /^javascript:/i.test(i.getAttribute('src') || ''); }).length,
+          textShowsPayload: document.body.textContent.indexOf('onerror=') >= 0
+        }, null, 2);
+        window.__gfReport = document.getElementById('report').textContent;
+      }, 800);
+    }, 800);
+  }, 800);
+});
+</script>
+</body></html>

@@ -1,0 +1,19 @@
+﻿<div is="emby-scroller"
+     class="view flex flex-direction-column scrollFrameY flex-grow"
+     data-horizontal="false"
+     data-forcescrollbar="true"
+     data-centerfocus="true"
+     data-bindheader="true"
+     data-controller="__plugin/gapfinderjs"
+     data-title="Gap Finder">
+
+  <div class="scrollSlider flex-grow flex-direction-column padded-left padded-left-page padded-right padded-top-page padded-bottom-page">
+    <!--
+      Deliberately only a shell that never changes: Emby serves plugin pages with "Cache-Control: public"
+      without max-age and versions the URL only with the server version, so browsers keep it after plugin
+      updates. gapfinder.js loads the UI (gapfinder-ui.html) and the script (gapfinder-app.js) with the build
+      id in the URL.
+    -->
+    <div class="gfMount"><p style="opacity:.6;">Loading Gap Finder...</p></div>
+  </div>
+</div>
