@@ -4,8 +4,8 @@
     <TargetFrameworks>netstandard2.0</TargetFrameworks>
     <AssemblyName>GapFinder</AssemblyName>
     <RootNamespace>GapFinder</RootNamespace>
-    <AssemblyVersion>1.0.0.2</AssemblyVersion>
-    <FileVersion>1.0.0.2</FileVersion>
+    <AssemblyVersion>1.0.0.3</AssemblyVersion>
+    <FileVersion>1.0.0.3</FileVersion>
     <Product>Gap Finder</Product>
     <Authors>SolisTVBox</Authors>
     <Copyright>Copyright (c) 2026 SolisTVBox</Copyright>

@@ -14,8 +14,8 @@ namespace GapFinder.Scanning
                 : "Library '" + libraryName + "': neither TheTVDB nor TheMovieDb is enabled as metadata downloader for series - missing episodes cannot be determined.";
 
         /// <summary>
-        /// Movies: a movie's collection comes from Emby's imported collection information or, if the import is off,
-        /// from the TheMovieDb downloader of the library.
+        /// Movies: a movie's collection comes from Emby's imported collection information and from the TheMovieDb
+        /// downloader of the library - one of the two is enough.
         /// </summary>
         public static string MovieWarning(string libraryName, bool importCollections, bool movieDbEnabled) =>
             importCollections || movieDbEnabled

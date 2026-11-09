@@ -20,10 +20,9 @@ namespace GapFinder.Scanning
 {
     /// <summary>
     /// Missing movies of movie collections. Unlike Emby's /Collections/{id}/Missing no Emby collections are
-    /// needed. A movie's TMDB collection comes from ImportedCollections when the library has "Import collection
-    /// information" (ImportCollections) enabled - only then does Emby fill that table. Otherwise it is looked up
-    /// with the TMDB provider (which uses its cache). Movies are matched against ALL movies of the server by
-    /// TMDB/IMDb id.
+    /// needed. A movie's TMDB collections are combined from two sources: ImportedCollections (only filled when the
+    /// library has "Import collection information" enabled, and only after a metadata refresh) and the TMDB provider
+    /// (which uses its cache). Movies are matched against ALL movies of the server by TMDB/IMDb id.
     /// </summary>
     public class MovieCollectionScanner
     {
@@ -153,13 +152,30 @@ namespace GapFinder.Scanning
             await ScanManager.ForEachParallelAsync(movies, maxParallel, token, async movie =>
             {
                 var libraryOptions = _libraryManager.GetLibraryOptions(movie);
-                List<CollectionRef> collections;
-                var failed = false;
+                var collections = new List<CollectionRef>();
+                var error = false;
+
+                // Both sources: Emby's imported entry is missing when the movie's metadata was never refreshed, and
+                // the provider finds nothing without a TMDB/IMDb id. Duplicates are merged by TMDB collection id.
+                if (libraryOptions != null && libraryOptions.ImportCollections)
+                {
+                    try
+                    {
+                        Merge(collections, GetImportedCollections(movie, token));
+                    }
+                    catch (OperationCanceledException)
+                    {
+                        throw;
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.Warn("[GapFinder] The imported collections of '{0}' could not be read: {1}", movie.Name, ex.Message);
+                        error = true;
+                    }
+                }
                 try
                 {
-                    collections = libraryOptions != null && libraryOptions.ImportCollections
-                        ? GetImportedCollections(movie, token)
-                        : await GetCollectionsFromProviderAsync(movie, libraryOptions, token).ConfigureAwait(false);
+                    Merge(collections, await GetCollectionsFromProviderAsync(movie, libraryOptions, token).ConfigureAwait(false));
                 }
                 catch (OperationCanceledException)
                 {
@@ -167,10 +183,11 @@ namespace GapFinder.Scanning
                 }
                 catch (Exception ex)
                 {
-                    _logger.Warn("[GapFinder] The collection of '{0}' could not be determined: {1}", movie.Name, ex.Message);
-                    collections = new List<CollectionRef>();
-                    failed = true;
+                    _logger.Warn("[GapFinder] The collection of '{0}' could not be looked up at TheMovieDb: {1}", movie.Name, ex.Message);
+                    error = true;
                 }
+                // Only a failure if no source delivered anything - one working source is enough.
+                var failed = error && collections.Count == 0;
 
                 lock (sync)
                 {
@@ -249,6 +266,17 @@ namespace GapFinder.Scanning
                 AddRef(list, collection.Name, collection.ProviderIds);
             }
             return list;
+        }
+
+        private static void Merge(List<CollectionRef> target, List<CollectionRef> source)
+        {
+            foreach (var collection in source)
+            {
+                if (target.All(c => c.TmdbId != collection.TmdbId))
+                {
+                    target.Add(collection);
+                }
+            }
         }
 
         private static void AddRef(List<CollectionRef> list, string name, IEnumerable<KeyValuePair<string, string>> providerIds)

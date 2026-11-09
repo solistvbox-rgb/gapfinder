@@ -242,9 +242,42 @@
             });
         }
 
+        // Emby's own dialogs instead of window.confirm/alert, which some browsers and embedded views block.
+        // Text is escaped and line breaks become <br>; without the Emby modules the browser dialogs are used.
+        function dialogHtml(text) {
+            return esc(String(text)).replace(/\n/g, '<br>');
+        }
+
+        function embyConfirm(text, title, confirmText) {
+            return new Promise(function (resolve) {
+                try {
+                    require(['confirm'], function (confirm) {
+                        var fn = confirm.default || confirm;
+                        fn({ html: dialogHtml(text), title: title || 'Please confirm', confirmText: confirmText, primary: 'delete' })
+                            .then(function () { resolve(true); }, function () { resolve(false); });
+                    }, function () { resolve(window.confirm(text)); });
+                } catch (e) {
+                    resolve(window.confirm(text));
+                }
+            });
+        }
+
+        function embyAlert(text, title) {
+            try {
+                require(['alert'], function (alert) {
+                    var fn = alert.default || alert;
+                    fn({ html: dialogHtml(text), title: title || 'Gap Finder' }).catch(function () { });
+                }, function () { window.alert(text); });
+            } catch (e) {
+                window.alert(text);
+            }
+        }
+
         // Deletes the saved results of both tabs (ignore list and search settings stay).
-        function clearResults() {
-            if (!window.confirm('Delete the saved results of both tabs (series and movie collections)?\nThe ignore list is kept.')) {
+        function clearResults(confirmed) {
+            if (confirmed !== true) {
+                embyConfirm('Delete the saved results of both tabs (series and movie collections)?\nThe ignore list is kept.', 'Clear search', 'Delete')
+                    .then(function (ok) { if (ok) { clearResults(true); } });
                 return;
             }
             $('#gfClearBtn').disabled = true;
@@ -385,7 +418,7 @@
                 renderSeries();
                 renderMovies();
             }).catch(function (err) {
-                errorText(err).then(function (t) { window.alert(t); });
+                errorText(err).then(function (t) { embyAlert(t); });
             });
         }
 
@@ -395,14 +428,18 @@
         }
 
         // "Remove from collection": the server cleans up the NFO (with backup), the Emby collection and the database.
-        function removeFromCollection(movieId, collectionTmdbId) {
+        function removeFromCollection(movieId, collectionTmdbId, confirmed) {
             var c = findCollection(collectionTmdbId);
             var movie = c && (c.WronglyAssigned || []).find(function (m) { return m.Id === movieId; });
             if (!c || !movie) { return; }
             var question = 'Remove "' + movie.Name + '" from "' + c.Name + '"?\n\n' +
                 '- removes the movie from the Emby collection (if any) and the collection info in the Emby database\n' +
                 '- removes the matching <set> entry from the movie\'s NFO file (a backup is kept in the plugin data folder)';
-            if (!window.confirm(question)) { return; }
+            if (confirmed !== true) {
+                embyConfirm(question, 'Remove from collection', 'Remove')
+                    .then(function (ok) { if (ok) { removeFromCollection(movieId, collectionTmdbId, true); } });
+                return;
+            }
 
             apiPost('GapFinder/Collections/RemoveMovie', { MovieId: movieId, CollectionTmdbId: collectionTmdbId, CollectionName: c.Name }).then(function (r) {
                 c.WronglyAssigned = (c.WronglyAssigned || []).filter(function (m) { return m.Id !== movieId; });
@@ -410,9 +447,9 @@
                 renderMovies();
                 // A collection that became empty was deleted - look up the links again.
                 loadEmbyCollections();
-                window.alert(removeResultText(movie.Name, c.Name, r));
+                embyAlert(removeResultText(movie.Name, c.Name, r));
             }).catch(function (err) {
-                errorText(err).then(function (t) { window.alert('Remove failed: ' + t); });
+                errorText(err).then(function (t) { embyAlert('Remove failed: ' + t); });
             });
         }
 
@@ -443,7 +480,7 @@
         }
 
         // "Remove collection" for a collection deleted on TMDB: clean up all movies naming it, delete the empty Emby collection.
-        function removeRemovedCollection(collectionTmdbId) {
+        function removeRemovedCollection(collectionTmdbId, confirmed) {
             var c = findCollection(collectionTmdbId);
             if (!c) { return; }
             var names = (c.Present || []).map(function (m) { return m.Name + (m.Year ? ' (' + m.Year + ')' : ''); });
@@ -451,7 +488,11 @@
                 '- removes the movies from the Emby collection and the collection info in the Emby database\n' +
                 '- removes the matching <set> entry from each NFO file (a backup is kept in the plugin data folder)\n' +
                 '- DELETES the Emby collection "' + c.Name + '" if it is empty afterwards (cannot be undone)';
-            if (!window.confirm(question)) { return; }
+            if (confirmed !== true) {
+                embyConfirm(question, 'Remove collection', 'Remove')
+                    .then(function (ok) { if (ok) { removeRemovedCollection(collectionTmdbId, true); } });
+                return;
+            }
 
             apiPost('GapFinder/Collections/RemoveRemoved', { CollectionTmdbId: collectionTmdbId }).then(function (r) {
                 var lines = ['"' + c.Name + '":', ''];
@@ -461,10 +502,10 @@
                     movieResultLines(m, '   ').forEach(function (l) { lines.push(l); });
                 });
                 deletedBoxSetLines(r.DeletedBoxSets).forEach(function (l) { lines.push(l); });
-                window.alert(lines.join('\n'));
+                embyAlert(lines.join('\n'));
                 return loadMovies();
             }).catch(function (err) {
-                errorText(err).then(function (t) { window.alert('Remove failed: ' + t); });
+                errorText(err).then(function (t) { embyAlert('Remove failed: ' + t); });
             });
         }
 
@@ -663,9 +704,13 @@
             return '<button type="button" class="gf-btn small link" data-radarr-add="' + esc(m.TmdbId) + '" title="Add this movie to Radarr">Send to Radarr</button>';
         }
 
-        function addToRadarr(tmdbIds, label) {
+        function addToRadarr(tmdbIds, label, confirmed) {
             if (!tmdbIds.length) { return; }
-            if (tmdbIds.length > 1 && !window.confirm('Add ' + tmdbIds.length + ' movies of "' + label + '" to Radarr?')) { return; }
+            if (tmdbIds.length > 1 && confirmed !== true) {
+                embyConfirm('Add ' + tmdbIds.length + ' movies of "' + label + '" to Radarr?', 'Radarr', 'Add')
+                    .then(function (ok) { if (ok) { addToRadarr(tmdbIds, label, true); } });
+                return;
+            }
             apiPost('GapFinder/Radarr/Add', { TmdbIds: tmdbIds }).then(function (results) {
                 (results || []).forEach(function (r) { state.radarrStatus[r.TmdbId] = r; });
                 renderMovies();
@@ -673,11 +718,11 @@
                     var added = (results || []).filter(function (r) { return r.Status === 'added'; }).length;
                     var exists = (results || []).filter(function (r) { return r.Status === 'exists'; }).length;
                     var failed = (results || []).filter(function (r) { return r.Status === 'error'; });
-                    window.alert('Radarr: ' + added + ' added, ' + exists + ' already in Radarr' +
+                    embyAlert('Radarr: ' + added + ' added, ' + exists + ' already in Radarr' +
                         (failed.length ? ', ' + failed.length + ' failed:\n' + failed.map(function (r) { return '- ' + (r.Title || r.TmdbId) + ': ' + r.Message; }).join('\n') : '.'));
                 }
             }).catch(function (err) {
-                errorText(err).then(function (t) { window.alert('Radarr: ' + t); });
+                errorText(err).then(function (t) { embyAlert('Radarr: ' + t); });
             });
         }
 
@@ -704,7 +749,7 @@
         }
 
         /// Sends the currently visible (filters!) and not ignored missing episodes of a series to Sonarr.
-        function searchInSonarr(seriesId) {
+        function searchInSonarr(seriesId, confirmed) {
             var entry = buildSeriesView(seriesFilters()).list.find(function (x) { return x.s.Id === seriesId; });
             if (!entry) { return; }
             var s = entry.s;
@@ -715,9 +760,13 @@
                     episodes.push({ SeasonNumber: e.SeasonNumber, EpisodeNumber: e.EpisodeNumber, EpisodeNumberEnd: e.EpisodeNumberEnd, Name: e.Name, PremiereDate: e.PremiereDate });
                 });
             });
-            if (!episodes.length) { window.alert('No missing episodes shown for "' + s.Name + '".'); return; }
+            if (!episodes.length) { embyAlert('No missing episodes shown for "' + s.Name + '".'); return; }
             var search = state.options.Sonarr.SearchNow ? ' and search for them' : '';
-            if (!window.confirm('Send ' + episodes.length + ' missing episode(s) of "' + s.Name + '" to Sonarr (monitor' + search + ')?\n\nOnly the episodes currently shown with your filters are sent. If the series is not monitored in Sonarr, it is set to monitored.')) { return; }
+            if (confirmed !== true) {
+                embyConfirm('Send ' + episodes.length + ' missing episode(s) of "' + s.Name + '" to Sonarr (monitor' + search + ')?\n\nOnly the episodes currently shown with your filters are sent. If the series is not monitored in Sonarr, it is set to monitored.', 'Sonarr', 'Send')
+                    .then(function (ok) { if (ok) { searchInSonarr(seriesId, true); } });
+                return;
+            }
             apiPost('GapFinder/Sonarr/Search', { TvdbId: s.ProviderIds && s.ProviderIds.Tvdb, SeriesName: s.Name, Episodes: episodes }).then(function (r) {
                 if (r.Status === 'notInSonarr') {
                     // No window.open: after the asynchronous answer it no longer counts as a user click and the popup
@@ -726,7 +775,7 @@
                         r.AddUrl ? { href: r.AddUrl, label: 'Open "Add new series" in Sonarr' } : null);
                     return;
                 }
-                if (r.Status === 'error') { window.alert('Sonarr: ' + r.Message); return; }
+                if (r.Status === 'error') { embyAlert('Sonarr: ' + r.Message); return; }
                 var lines = ['Sonarr - "' + s.Name + '":', ''];
                 if (r.SeriesMonitored) { lines.push('Series set to monitored in Sonarr'); }
                 lines = lines.concat([
@@ -738,9 +787,9 @@
                     r.Unmatched.slice(0, 15).forEach(function (u) { lines.push('- ' + u); });
                     if (r.Unmatched.length > 15) { lines.push('...'); }
                 }
-                window.alert(lines.join('\n'));
+                embyAlert(lines.join('\n'));
             }).catch(function (err) {
-                errorText(err).then(function (t) { window.alert('Sonarr: ' + t); });
+                errorText(err).then(function (t) { embyAlert('Sonarr: ' + t); });
             });
         }
 
@@ -890,7 +939,9 @@
             if (!view.list.length) {
                 html = '<div class="gf-empty">Nothing missing with the current filters.</div>';
             }
-            shown.forEach(function (x) { html += seriesCardHtml(x); });
+            // The library only matters when the cards come from more than one.
+            var showLibrary = new Set(view.list.map(function (x) { return x.s.LibraryName || ''; })).size > 1;
+            shown.forEach(function (x) { html += seriesCardHtml(x, showLibrary); });
             if (view.list.length > shown.length) {
                 html += '<div class="gf-more"><button type="button" class="gf-btn" data-more="series">Show more (' +
                     (view.list.length - shown.length) + ' remaining)</button></div>';
@@ -906,34 +957,37 @@
             container.innerHTML = html;
         }
 
-        function seriesCardHtml(x) {
+        function seriesCardHtml(x, showLibrary) {
             var s = x.s;
             var open = state.series.open.has(s.Id);
+            var meta = [];
+            if (s.Year) { meta.push(s.Year); }
+            if (s.Status) { meta.push(s.Status === 'Ended' ? 'Ended' : (s.Status === 'Continuing' ? 'Continuing' : esc(s.Status))); }
             var sub = [];
-            if (s.Year) { sub.push(s.Year); }
-            if (s.Status) { sub.push(s.Status === 'Ended' ? 'Ended' : (s.Status === 'Continuing' ? 'Continuing' : esc(s.Status))); }
-            if (s.LibraryName) { sub.push(esc(s.LibraryName)); }
-            sub.push(x.present + ' of ' + (x.present + x.missing) + ' episodes' +
+            if (showLibrary && s.LibraryName) { sub.push('<div class="gf-sub">Library: ' + esc(s.LibraryName) + '</div>'); }
+            sub.push('<div class="gf-sub">' + x.present + ' of ' + (x.present + x.missing) + ' episodes' +
                 (x.upcoming ? ' <span class="gf-upcoming-toggle" role="button" tabindex="0" data-toggle-upcoming="' + esc(s.Id) + '" title="' +
                     (x.showUpcoming ? 'Hide the upcoming episodes and episodes without air date' : 'Show the upcoming episodes and episodes without air date of this series') + '">' +
-                    (x.showUpcoming ? 'hide upcoming' : '+' + x.upcoming + ' upcoming') + '</span>' : ''));
+                    (x.showUpcoming ? 'hide upcoming' : '+' + x.upcoming + ' upcoming') + '</span>' : '') + '</div>');
 
             var html = '<div class="gf-card' + (open ? ' open' : '') + (x.ignored ? ' ignored' : '') + '" data-series="' + esc(s.Id) + '">' +
                 '<div class="gf-card-head" data-toggle-series="' + esc(s.Id) + '">' +
                 '<i class="md-icon gf-chevron" aria-hidden="true">chevron_right</i>' +
                 '<img class="gf-poster" loading="lazy" src="' + esc(imageUrl(s.Id, 120)) + '" alt="" onerror="this.style.visibility=\'hidden\'" />' +
-                '<div class="gf-card-title"><div class="gf-name"><span class="gf-col-link" role="link" tabindex="0" data-open-item="' + esc(s.Id) + '" title="Open series in Emby">' +
-                esc(s.Name) + '</span></div><div class="gf-sub">' + sub.join(' &middot; ') + '</div></div>' +
-                '<div class="gf-card-stats">' +
+                '<div class="gf-card-title"><div class="gf-name gf-title-row"><span class="gf-col-link" role="link" tabindex="0" data-open-item="' + esc(s.Id) + '" title="Open series in Emby">' +
+                esc(s.Name) + '</span>' + (meta.length ? '<span class="gf-title-meta">' + meta.join(' &middot; ') + '</span>' : '') + '</div>' +
+                sub.join('') + '</div>' +
+                '<div class="gf-card-stats"><div class="gf-card-nums">' +
                 (x.fullSeasons ? '<span class="gf-badge info" title="Completely missing seasons">' + x.fullSeasons + ' full season' + (x.fullSeasons > 1 ? 's' : '') + '</span>' : '') +
                 '<span class="gf-badge warn" title="Missing episodes">' + x.missing + '</span>' +
                 '<div class="gf-progress ' + progressClass(x.pct) + '"><div style="width:' + x.pct + '%"></div></div>' +
                 '<span class="gf-pct">' + x.pct + '%</span>' +
+                '</div><div class="gf-card-actions">' +
                 seriesProviderLinkHtml(s) +
                 sonarrButtonHtml(s) +
                 '<button type="button" class="gf-btn small" data-ignore="' + esc(keys.series(s.Id)) + '" data-ignore-state="' + (x.ignored ? '0' : '1') + '">' +
                 (x.ignored ? 'Unignore' : 'Ignore') + '</button>' +
-                '</div></div>';
+                '</div></div></div>';
 
             if (open) {
                 html += '<div class="gf-card-body">' + x.seasons.map(function (entry) { return seasonHtml(s, entry); }).join('') + '</div>';
@@ -1165,16 +1219,17 @@
                 '<img class="gf-poster" loading="lazy" src="' + esc(poster) + '" alt="" onerror="this.style.visibility=\'hidden\'" />' +
                 '<div class="gf-card-title"><div class="gf-name">' + collectionNameHtml(c.TmdbId, c.Name) + '</div><div class="gf-sub">' +
                 x.present + ' of ' + (x.present + x.missing.length) + ' movies in library</div></div>' +
-                '<div class="gf-card-stats">' +
+                '<div class="gf-card-stats"><div class="gf-card-nums">' +
                 '<span class="gf-badge warn" title="Missing movies">' + x.missing.length + '</span>' +
-                (arrMode('Radarr') === 'Api' ? '<button type="button" class="gf-btn small link" data-radarr-add-all="' + esc(c.TmdbId) + '" title="Add all shown missing movies of this collection to Radarr">Send all to Radarr</button>' : '') +
                 '<div class="gf-progress ' + progressClass(x.pct) + '"><div style="width:' + x.pct + '%"></div></div>' +
                 '<span class="gf-pct">' + x.pct + '%</span>' +
+                '</div><div class="gf-card-actions">' +
                 '<a class="gf-btn small link" style="text-decoration:none;" target="_blank" rel="noopener" href="https://www.themoviedb.org/collection/' +
                 encodeURIComponent(c.TmdbId) + '" data-stop="1">TMDB</a>' +
+                (arrMode('Radarr') === 'Api' ? '<button type="button" class="gf-btn small link" data-radarr-add-all="' + esc(c.TmdbId) + '" title="Add all shown missing movies of this collection to Radarr">Send all to Radarr</button>' : '') +
                 '<button type="button" class="gf-btn small" data-ignore="' + esc(keys.collection(c.TmdbId)) + '" data-ignore-state="' + (x.ignored ? '0' : '1') + '">' +
                 (x.ignored ? 'Unignore' : 'Ignore') + '</button>' +
-                '</div></div>';
+                '</div></div></div>';
 
             if (open) {
                 html += '<div class="gf-card-body">';
@@ -1185,9 +1240,9 @@
                         '<img class="gf-movie-thumb" loading="lazy" src="' + esc(m.ThumbnailUrl || '') + '" alt="" onerror="this.style.visibility=\'hidden\'" />' +
                         '<span class="gf-ep-name">' + esc(m.Name) + (m.Year ? ' <span class="gf-muted">(' + m.Year + ')</span>' : '') + '</span>' +
                         dateCellHtml(m.PremiereDate, 'unreleased') +
-                        (m.TmdbId ? radarrButtonHtml(m) : '') +
                         (m.TmdbId ? '<a class="gf-btn small link" style="text-decoration:none;" target="_blank" rel="noopener" href="https://www.themoviedb.org/movie/' +
                             encodeURIComponent(m.TmdbId) + '">TMDB</a>' : '') +
+                        (m.TmdbId ? radarrButtonHtml(m) : '') +
                         (m.TmdbId ? '<button type="button" class="gf-btn small link" data-ignore="' + esc(keys.movie(m.TmdbId)) + '" data-ignore-state="' + (ownIgnored ? '0' : '1') + '">' +
                             (ownIgnored ? 'Unignore' : 'Ignore') + '</button>' : '') +
                         '</div>';
@@ -1214,7 +1269,7 @@
             apiGet('GapFinder/Export', params).then(function (res) {
                 downloadBase64(res.ContentBase64, res.FileName, res.ContentType);
             }).catch(function (err) {
-                errorText(err).then(function (t) { window.alert('Export failed: ' + t); });
+                errorText(err).then(function (t) { embyAlert('Export failed: ' + t); });
             });
         }
 

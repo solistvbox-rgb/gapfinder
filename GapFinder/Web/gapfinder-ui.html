@@ -98,7 +98,14 @@
         .gfRoot .gf-card-title { flex: 1 1 auto; min-width: 0; }
         .gfRoot .gf-card-title .gf-name { font-weight: 600; font-size: 1.05em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
         .gfRoot .gf-card-title .gf-sub { font-size: .88em; color: var(--gf-muted); margin-top: .15em; }
-        .gfRoot .gf-card-stats { display: flex; align-items: center; gap: .7em; flex: 0 0 auto; }
+        /* Series: title with year/status in the small grey style next to it; wraps below on narrow cards */
+        .gfRoot .gf-card-title .gf-title-row { display: flex; flex-wrap: wrap; align-items: baseline; column-gap: .7em; white-space: normal; overflow: visible; }
+        .gfRoot .gf-title-row .gf-col-link { min-width: 0; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .gfRoot .gf-title-meta { font-weight: normal; font-size: .84em; color: var(--gf-muted); white-space: nowrap; }
+        /* Right side of a card: numbers on top, actions (provider, Sonarr/Radarr, Ignore) below */
+        .gfRoot .gf-card-stats { display: flex; flex-direction: column; align-items: flex-end; gap: .35em; flex: 0 0 auto; }
+        .gfRoot .gf-card-nums, .gfRoot .gf-card-actions { display: flex; align-items: center; gap: .7em; }
+        .gfRoot .gf-card-actions { gap: .3em; }
         .gfRoot .gf-card-stats .gf-progress { flex: 0 0 110px; }
         .gfRoot .gf-pct { width: 3.2em; text-align: right; font-size: .9em; color: var(--gf-muted); }
         /* Emby's own icon font (md-icon), same chevron as the metadata manager tree */

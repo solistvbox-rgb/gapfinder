@@ -1,5 +1,17 @@
 # Changelog
 
+## 1.0.0.3
+
+- Confirmations and messages (e.g. "Clear search", "Remove collection", Sonarr/Radarr) use Emby's own dialogs instead
+  of the browser's, which some browsers and embedded views block.
+- Series cards: year and status next to the title, the episode count on its own line. "Library: <name>" is shown
+  only when the listed series come from more than one library.
+- Cards: numbers on top, actions below. The order is the same everywhere: metadata provider, Sonarr/Radarr, Ignore.
+- Movie collections: a movie's collection is now taken from Emby's imported collection information and from
+  TheMovieDb together. Before, libraries with "Import collection information" used only Emby's entry, so movies
+  whose metadata had not been refreshed yet were not found in their collection. Searches in such libraries can take
+  a little longer.
+
 ## 1.0.0.2
 
 - Series: a "+N upcoming" button per series shows its upcoming episodes and episodes without an air date (only when
