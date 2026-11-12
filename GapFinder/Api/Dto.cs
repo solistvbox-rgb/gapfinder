@@ -199,6 +199,8 @@ namespace GapFinder.Api
         public bool ScanMovies { get; set; }
         public string[] LibraryIds { get; set; }
         public int? MaxParallelRequests { get; set; }
+        /// <summary>Ask TheTVDB/TMDB for everything instead of reusing saved answers (see ProviderCache).</summary>
+        public bool IgnoreCache { get; set; }
     }
 
     [Route("/GapFinder/Scan/Cancel", "POST", Summary = "Cancel the running search")]

@@ -266,7 +266,7 @@ namespace GapFinder.Arr
         private static SonarrEpisode Match(List<SonarrEpisode> sonarr, EpisodeRef episode, int number, out bool byDateOrTitle)
         {
             byDateOrTitle = false;
-            var date = episode.PremiereDate?.UtcDateTime.Date;
+            var date = episode.PremiereDate.HasValue ? CalendarDate.Of(episode.PremiereDate.Value) : (DateTime?)null;
             var title = NormalizeTitle(episode.Name);
 
             var sameNumber = sonarr.FirstOrDefault(e => e.seasonNumber == episode.SeasonNumber && e.episodeNumber == number);

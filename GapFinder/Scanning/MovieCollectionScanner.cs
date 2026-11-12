@@ -21,8 +21,9 @@ namespace GapFinder.Scanning
     /// <summary>
     /// Missing movies of movie collections. Unlike Emby's /Collections/{id}/Missing no Emby collections are
     /// needed. A movie's TMDB collections are combined from two sources: ImportedCollections (only filled when the
-    /// library has "Import collection information" enabled, and only after a metadata refresh) and the TMDB provider
-    /// (which uses its cache). Movies are matched against ALL movies of the server by TMDB/IMDb id.
+    /// library has "Import collection information" enabled, and only after a metadata refresh) and the TMDB provider.
+    /// Both TMDB answers (a movie's collection, a collection's movies) are kept in the ProviderCache. Movies are
+    /// matched against ALL movies of the server by TMDB/IMDb id.
     /// </summary>
     public class MovieCollectionScanner
     {
@@ -30,17 +31,23 @@ namespace GapFinder.Scanning
         private readonly IProviderManager _providerManager;
         private readonly IFileSystem _fileSystem;
         private readonly GapFinderLogger _logger;
+        private readonly ProviderCache _cache;
+        private readonly bool _useCache;
 
         private readonly HashSet<string> _allTmdbIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         private readonly HashSet<string> _allImdbIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         private readonly Dictionary<string, Movie> _moviesByTmdbId = new Dictionary<string, Movie>(StringComparer.OrdinalIgnoreCase);
 
-        public MovieCollectionScanner(ILibraryManager libraryManager, IProviderManager providerManager, IFileSystem fileSystem, GapFinderLogger logger)
+        /// <param name="cache">Saved provider answers (null = none); new answers are added to it.</param>
+        /// <param name="useCache">false = ask TMDB for every movie and collection ("Ignore cache").</param>
+        public MovieCollectionScanner(ILibraryManager libraryManager, IProviderManager providerManager, IFileSystem fileSystem, GapFinderLogger logger, ProviderCache cache = null, bool useCache = true)
         {
             _libraryManager = libraryManager;
             _providerManager = providerManager;
             _fileSystem = fileSystem;
             _logger = logger;
+            _cache = cache;
+            _useCache = useCache;
         }
 
         public class CollectionCandidate
@@ -49,12 +56,6 @@ namespace GapFinder.Scanning
             public string Name { get; set; }
             public LibraryOptions LibraryOptions { get; set; }
             public List<Movie> LocalMembers { get; } = new List<Movie>();
-        }
-
-        private class CollectionRef
-        {
-            public string TmdbId { get; set; }
-            public string Name { get; set; }
         }
 
         /// <summary>Movies of the selected libraries (without duplicates) and the stock of all movies for matching.</summary>
@@ -248,6 +249,17 @@ namespace GapFinder.Scanning
                 return list;
             }
 
+            // The provider downloads the complete movie (cast, images, trailers, reviews) - only the collection is
+            // needed, so it is kept in the cache and asked again only every 30-44 days (see CachePolicy).
+            var cacheKey = ProviderCache.MovieKey(movie.GetProviderId(MetadataProviders.Tmdb), movie.GetProviderId(MetadataProviders.Imdb));
+            var language = SeriesScanner.LanguageKey(libraryOptions);
+            if (_cache != null && _useCache && _cache.Movies.TryGetValue(cacheKey, out var cached)
+                && CachePolicy.CanReuseMovieCollections(cached, language, cacheKey, DateTime.UtcNow))
+            {
+                Interlocked.Increment(ref _cache.MoviesReused);
+                return cached.Collections.Select(c => new CollectionRef { TmdbId = c.TmdbId, Name = c.Name }).ToList();
+            }
+
             // Emby 4.11: MovieDb implements only the variant with options (GetMetadata(MovieInfo) throws
             // NotImplementedException). Emby 4.10: only GetMetadata(MovieInfo) exists.
             var result = provider is IRemoteMetadataProviderWithOptions<Movie, MovieInfo> withOptions
@@ -257,13 +269,27 @@ namespace GapFinder.Scanning
                     DirectoryService = new DirectoryService(_fileSystem)
                 }, token).ConfigureAwait(false)
                 : await provider.GetMetadata(movie.GetLookupInfo(libraryOptions), token).ConfigureAwait(false);
+            if (_cache != null)
+            {
+                Interlocked.Increment(ref _cache.MoviesFetched);
+            }
             if (result?.Item == null)
             {
+                // Not found at TMDB (e.g. wrong id) - not cached, so a corrected id is found at the next search.
                 return list;
             }
             foreach (var collection in result.Item.Collections)
             {
                 AddRef(list, collection.Name, collection.ProviderIds);
+            }
+            if (_cache != null)
+            {
+                _cache.Movies[cacheKey] = new CachedMovieCollections
+                {
+                    FetchedUtc = DateTime.UtcNow,
+                    Language = language,
+                    Collections = list.Select(c => new CollectionRef { TmdbId = c.TmdbId, Name = c.Name }).ToList()
+                };
             }
             return list;
         }
@@ -310,35 +336,61 @@ namespace GapFinder.Scanning
         {
             var result = new CollectionResult { TmdbId = candidate.TmdbId, Name = candidate.Name };
 
-            MediaBrowser.Model.Providers.RemoteSearchResult[] parts;
-            try
+            List<CachedPart> parts;
+            var boxSetOptions = GetBoxSetLibraryOptions(candidate.LibraryOptions);
+            var language = SeriesScanner.LanguageKey(boxSetOptions);
+            var memberIds = candidate.LocalMembers
+                .SelectMany(m => new[] { m.GetProviderId(MetadataProviders.Tmdb), m.GetProviderId(MetadataProviders.Imdb) })
+                .Where(id => !string.IsNullOrEmpty(id)).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+
+            if (_cache != null && _useCache && _cache.Collections.TryGetValue(candidate.TmdbId, out var cached)
+                && CachePolicy.CanReuseCollectionParts(cached, memberIds, language, candidate.TmdbId, DateTime.UtcNow, CalendarDate.Today))
             {
-                // Temporary, unsaved BoxSet that only carries the TMDB collection id.
-                var boxSet = new BoxSet { Name = candidate.Name };
-                boxSet.SetProviderId(MetadataProviders.Tmdb, candidate.TmdbId);
-                parts = await _providerManager.GetAllItems(boxSet, GetBoxSetLibraryOptions(candidate.LibraryOptions), token).ConfigureAwait(false);
+                Interlocked.Increment(ref _cache.CollectionsReused);
+                if (cached.NotFound)
+                {
+                    return RemovedFromTmdb(result, candidate);
+                }
+                parts = cached.Parts;
             }
-            catch (OperationCanceledException)
+            else
             {
-                throw;
-            }
-            catch (Exception ex) when (IsNotFound(ex))
-            {
-                // TMDB deleted the collection (e.g. one with only a single released movie). The movies that still name it
-                // have outdated metadata (ImportedCollections/NFO) - not a search error.
-                _logger.Info("[GapFinder] Collection '{0}' ({1}) no longer exists on TMDB.", candidate.Name, candidate.TmdbId);
-                result.RemovedFromTmdb = true;
-                result.Present = candidate.LocalMembers.Select(ToPresent).OrderBy(m => m.Name, StringComparer.OrdinalIgnoreCase).ToList();
-                return result;
-            }
-            catch (Exception ex)
-            {
-                _logger.Warn("[GapFinder] Collection '{0}' could not be loaded: {1}", candidate.Name, ex.Message);
-                result.Error = ex.Message;
-                parts = null;
+                try
+                {
+                    // Temporary, unsaved BoxSet that only carries the TMDB collection id.
+                    var boxSet = new BoxSet { Name = candidate.Name };
+                    boxSet.SetProviderId(MetadataProviders.Tmdb, candidate.TmdbId);
+                    var fetched = await _providerManager.GetAllItems(boxSet, boxSetOptions, token).ConfigureAwait(false);
+                    parts = (fetched ?? new MediaBrowser.Model.Providers.RemoteSearchResult[0]).Select(ToCachedPart).ToList();
+                    CountFetchedCollection();
+                    if (_cache != null && parts.Count > 0)
+                    {
+                        _cache.Collections[candidate.TmdbId] = new CachedCollectionParts { FetchedUtc = DateTime.UtcNow, Language = language, Parts = parts, LocalMemberIds = memberIds };
+                    }
+                }
+                catch (OperationCanceledException)
+                {
+                    throw;
+                }
+                catch (Exception ex) when (IsNotFound(ex))
+                {
+                    CountFetchedCollection();
+                    if (_cache != null)
+                    {
+                        _cache.Collections[candidate.TmdbId] = new CachedCollectionParts { FetchedUtc = DateTime.UtcNow, Language = language, NotFound = true, LocalMemberIds = memberIds };
+                    }
+                    return RemovedFromTmdb(result, candidate);
+                }
+                catch (Exception ex)
+                {
+                    CountFetchedCollection();
+                    _logger.Warn("[GapFinder] Collection '{0}' could not be loaded: {1}", candidate.Name, ex.Message);
+                    result.Error = ex.Message;
+                    parts = null;
+                }
             }
 
-            if (result.Error == null && (parts == null || parts.Length == 0))
+            if (result.Error == null && (parts == null || parts.Count == 0))
             {
                 // No provider (e.g. TheMovieDb not enabled for collections) or an empty collection: do not count it as
                 // complete, show it under "could not be loaded" instead.
@@ -349,10 +401,10 @@ namespace GapFinder.Scanning
             var partTmdbIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             var partImdbIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             var presentIds = new HashSet<long>();
-            foreach (var part in parts ?? new MediaBrowser.Model.Providers.RemoteSearchResult[0])
+            foreach (var part in parts ?? new List<CachedPart>())
             {
-                var tmdb = part.GetProviderId(MetadataProviders.Tmdb);
-                var imdb = part.GetProviderId(MetadataProviders.Imdb);
+                var tmdb = part.TmdbId;
+                var imdb = part.ImdbId;
                 if (string.IsNullOrEmpty(tmdb) && string.IsNullOrEmpty(imdb))
                 {
                     continue;
@@ -381,9 +433,9 @@ namespace GapFinder.Scanning
                 {
                     TmdbId = tmdb,
                     Name = part.Name,
-                    Year = part.ProductionYear ?? part.PremiereDate?.Year,
+                    Year = part.Year,
                     PremiereDate = part.PremiereDate,
-                    Overview = SeriesScanner.Truncate(part.Overview, 400),
+                    Overview = part.Overview,
                     ThumbnailUrl = part.ThumbnailUrl
                 });
             }
@@ -494,6 +546,37 @@ namespace GapFinder.Scanning
             }
             return false;
         }
+
+        /// <summary>
+        /// TMDB deleted the collection (e.g. one with only a single released movie). The movies that still name it have
+        /// outdated metadata (ImportedCollections/NFO) - not a search error.
+        /// </summary>
+        private CollectionResult RemovedFromTmdb(CollectionResult result, CollectionCandidate candidate)
+        {
+            _logger.Info("[GapFinder] Collection '{0}' ({1}) no longer exists on TMDB.", candidate.Name, candidate.TmdbId);
+            result.RemovedFromTmdb = true;
+            result.Present = candidate.LocalMembers.Select(ToPresent).OrderBy(m => m.Name, StringComparer.OrdinalIgnoreCase).ToList();
+            return result;
+        }
+
+        private void CountFetchedCollection()
+        {
+            if (_cache != null)
+            {
+                Interlocked.Increment(ref _cache.CollectionsFetched);
+            }
+        }
+
+        private static CachedPart ToCachedPart(MediaBrowser.Model.Providers.RemoteSearchResult part) => new CachedPart
+        {
+            TmdbId = part.GetProviderId(MetadataProviders.Tmdb),
+            ImdbId = part.GetProviderId(MetadataProviders.Imdb),
+            Name = part.Name,
+            Year = part.ProductionYear ?? (part.PremiereDate.HasValue ? CalendarDate.Of(part.PremiereDate.Value).Year : (int?)null),
+            PremiereDate = CalendarDate.Normalize(part.PremiereDate),
+            Overview = SeriesScanner.Truncate(part.Overview, 400),
+            ThumbnailUrl = part.ThumbnailUrl
+        };
 
         private static PresentMovie ToPresent(Movie movie) =>
             new PresentMovie { Id = movie.GetClientId(), Name = movie.Name, Year = movie.ProductionYear };

@@ -31,6 +31,8 @@ namespace GapFinder.Scanning
             /// <summary>Selected libraries (empty = all suitable ones).</summary>
             public string[] LibraryIds { get; set; }
             public int MaxParallel { get; set; }
+            /// <summary>Ask the providers for everything, ignoring saved answers (the new answers are saved).</summary>
+            public bool IgnoreCache { get; set; }
         }
 
         public static ScanStatus GetStatus()
@@ -94,9 +96,11 @@ namespace GapFinder.Scanning
         private static async Task RunAsync(ScanRequest request, ILibraryManager libraryManager, IProviderManager providerManager, IFileSystem fileSystem, ResultStore store, GapFinderLogger logger, CancellationToken token)
         {
             var libraries = LibraryHelper.ResolveLibraries(libraryManager, request.LibraryIds);
+            ProviderCache cache = null;
             try
             {
-                logger.Info("[GapFinder] Search started (series: {0}, movie collections: {1}).", request.ScanSeries, request.ScanMovies);
+                logger.Info("[GapFinder] Search started (series: {0}, movie collections: {1}, ignore cache: {2}).", request.ScanSeries, request.ScanMovies, request.IgnoreCache);
+                cache = ProviderCache.Load(store.Json, logger);
 
                 // Save both results only after everything has finished - a cancel leaves the previous results untouched.
                 SeriesResults seriesResults = null;
@@ -104,7 +108,7 @@ namespace GapFinder.Scanning
 
                 if (request.ScanSeries)
                 {
-                    var scanner = new SeriesScanner(libraryManager, providerManager, logger);
+                    var scanner = new SeriesScanner(libraryManager, providerManager, logger, cache, !request.IgnoreCache);
                     var seriesWarnings = scanner.CheckProviders(libraries);
                     var series = scanner.CollectSeries(libraries);
                     BeginPhase("Series", series.Count);
@@ -116,7 +120,7 @@ namespace GapFinder.Scanning
 
                 if (request.ScanMovies)
                 {
-                    var scanner = new MovieCollectionScanner(libraryManager, providerManager, fileSystem, logger);
+                    var scanner = new MovieCollectionScanner(libraryManager, providerManager, fileSystem, logger, cache, !request.IgnoreCache);
                     var movieWarnings = scanner.CheckProviders(libraries);
                     var movies = scanner.CollectMovies(libraries);
                     BeginPhase("MovieInfo", movies.Count);
@@ -137,11 +141,15 @@ namespace GapFinder.Scanning
                     store.SaveMovies(movieResults);
                 }
 
-                logger.Info("[GapFinder] Search finished ({0} error(s) on single items).", Volatile.Read(ref _itemErrors));
+                cache.Save(store.Json, logger);
+                logger.Info("[GapFinder] Search finished ({0} error(s) on single items). Provider requests: series {1} (cached {2}), movies {3} (cached {4}), collections {5} (cached {6}).",
+                    Volatile.Read(ref _itemErrors), cache.SeriesFetched, cache.SeriesReused, cache.MoviesFetched, cache.MoviesReused, cache.CollectionsFetched, cache.CollectionsReused);
                 Finish(false, null);
             }
             catch (OperationCanceledException)
             {
+                // The answers fetched so far are valid - keep them, so the next search does not ask again.
+                cache?.Save(store.Json, logger);
                 logger.Info("[GapFinder] Search cancelled.");
                 Finish(true, null);
             }

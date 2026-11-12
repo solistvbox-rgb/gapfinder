@@ -56,6 +56,9 @@ namespace GapFinder
 
         public string IgnoreListFilePath => Path.Combine(DataFolder, "ignored.json");
 
+        /// <summary>Provider answers reused between searches (see Data.ProviderCache).</summary>
+        public string ProviderCacheFilePath => Path.Combine(DataFolder, "provider-cache.json");
+
         public string DisplayVersion
         {
             get

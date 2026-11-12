@@ -33,6 +33,10 @@ The page appears in the dashboard under **Advanced → Gap Finder**.
 
 - Search series, movie collections or both - all libraries or only selected ones
 - Runs in the background with progress and a cancel button; 1-8 parallel provider requests
+- Spares TheTVDB/TMDB: answers that rarely change are reused from earlier searches - episode lists of ended
+  series (asked again after about two months, or when the series continues), the collection of each movie (about
+  a month) and the movies of each collection (two weeks, or three days while a movie is announced; at once when a
+  new movie of the collection is added). "Ask TheTVDB/TMDB for everything again" ignores them for one search
 - Results are saved and are still there after a restart; "Clear search" deletes them (the ignore list is kept)
 - If a library has no suitable metadata downloader, the tab shows a "Check your library settings" hint instead
   of silently empty or incomplete results
@@ -143,7 +147,7 @@ All routes require an administrator.
 | POST | `/GapFinder/Arr/Test` | Test the connection to Sonarr/Radarr (Radarr: profiles, root folders) |
 | POST | `/GapFinder/Radarr/Add` | Add `TmdbIds[]` to Radarr |
 | POST | `/GapFinder/Sonarr/Search` | Monitor/search missing episodes of a series in Sonarr |
-| POST | `/GapFinder/Scan` | Start a search (`ScanSeries`, `ScanMovies`, `LibraryIds`, `MaxParallelRequests`) |
+| POST | `/GapFinder/Scan` | Start a search (`ScanSeries`, `ScanMovies`, `LibraryIds`, `MaxParallelRequests`, `IgnoreCache`) |
 | POST | `/GapFinder/Scan/Cancel` | Cancel the search |
 | GET | `/GapFinder/Status` | Search progress |
 | GET | `/GapFinder/Results/Series` | Last series result and ignore list |

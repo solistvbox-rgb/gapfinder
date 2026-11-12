@@ -10,10 +10,12 @@ namespace GapFinder.Api
     /// </summary>
     public static class ResultFilter
     {
-        /// <summary>No date, or a date from tomorrow on = not aired/released yet.</summary>
-        public static bool IsReleased(DateTimeOffset? premiereDate)
+        /// <summary>No date, or a date from tomorrow on (server-local today) = not aired/released yet.</summary>
+        public static bool IsReleased(DateTimeOffset? premiereDate) => IsReleased(premiereDate, CalendarDate.Today);
+
+        public static bool IsReleased(DateTimeOffset? premiereDate, DateTime today)
         {
-            return premiereDate.HasValue && premiereDate.Value.UtcDateTime.Date <= DateTime.UtcNow.Date;
+            return premiereDate.HasValue && CalendarDate.Of(premiereDate.Value) <= today.Date;
         }
 
         /// <summary>Aired: a date today or earlier, or no date but assumed aired (see SeriesScanner.MarkAssumedAired).</summary>

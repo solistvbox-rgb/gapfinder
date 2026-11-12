@@ -195,6 +195,11 @@
           </select>
           <span class="gf-muted" style="font-size:.88em;">Higher = faster, but more load on TheTVDB/TMDB.</span>
         </div>
+        <div class="gf-row">
+          <label class="gf-check" title="Normally ended series, the collection of each movie and the movies of each collection are reused from earlier searches and only asked again after a few days or weeks.">
+            <input type="checkbox" id="gfIgnoreCache" /> Ask TheTVDB/TMDB for everything again (ignore saved answers)
+          </label>
+        </div>
         <div class="gf-row" style="margin-top:1em;">
           <button type="button" class="gf-btn primary" id="gfStartBtn">Start search</button>
           <button type="button" class="gf-btn" id="gfClearBtn" title="Delete the saved results of both tabs. The ignore list is kept.">Clear search</button>

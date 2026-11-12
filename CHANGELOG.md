@@ -1,5 +1,18 @@
 # Changelog
 
+## 1.0.0.4
+
+- Air and release dates were shown one day too early on servers east of UTC (e.g. Europe), and episodes counted as
+  aired one day too early. Emby stores these dates as midnight in the server's time zone; Gap Finder now uses that
+  calendar day everywhere (page, CSV export, Sonarr matching). Saved results are corrected without a new search.
+- Far fewer requests to TheTVDB/TMDB. Emby's library scan does not ask the providers for existing items, but every
+  Gap Finder search asked again for every series, movie and collection. Answers that rarely change are now kept in
+  `provider-cache.json` and reused: episode lists of ended series (60-74 days, or until the series continues), the
+  collection of each movie (30-44 days - TMDB's movie request includes cast, images and trailers, of which only the
+  collection is needed) and the movies of each collection (14-28 days, 3 days while a movie is announced or
+  undated, at once when a new movie of the collection is added). The checkbox "Ask TheTVDB/TMDB for everything
+  again" ignores the saved answers for one search. The log shows how many requests were sent and reused.
+
 ## 1.0.0.3
 
 - Confirmations and messages (e.g. "Clear search", "Remove collection", Sonarr/Radarr) use Emby's own dialogs instead

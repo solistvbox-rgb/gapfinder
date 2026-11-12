@@ -26,11 +26,19 @@ namespace GapFinder.Data
             _logger = logger;
         }
 
+        /// <summary>The serializer, also used for the provider cache file.</summary>
+        public IJsonSerializer Json => _json;
+
         public SeriesResults LoadSeries()
         {
             lock (Sync)
             {
-                return _seriesCache ?? (_seriesCache = Read<SeriesResults>(Plugin.Instance.SeriesResultsFilePath) ?? new SeriesResults());
+                if (_seriesCache == null)
+                {
+                    _seriesCache = Read<SeriesResults>(Plugin.Instance.SeriesResultsFilePath) ?? new SeriesResults();
+                    CalendarDate.NormalizeDates(_seriesCache);
+                }
+                return _seriesCache;
             }
         }
 
@@ -47,7 +55,12 @@ namespace GapFinder.Data
         {
             lock (Sync)
             {
-                return _movieCache ?? (_movieCache = Read<MovieResults>(Plugin.Instance.MovieResultsFilePath) ?? new MovieResults());
+                if (_movieCache == null)
+                {
+                    _movieCache = Read<MovieResults>(Plugin.Instance.MovieResultsFilePath) ?? new MovieResults();
+                    CalendarDate.NormalizeDates(_movieCache);
+                }
+                return _movieCache;
             }
         }
 

@@ -8,6 +8,8 @@ using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Entities.TV;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Controller.Providers;
+using MediaBrowser.Model.Configuration;
+using MediaBrowser.Model.Entities;
 using MediaBrowser.Model.Logging;
 using MediaBrowser.Model.Providers;
 using GapFinder.Data;
@@ -24,12 +26,18 @@ namespace GapFinder.Scanning
         private readonly ILibraryManager _libraryManager;
         private readonly IProviderManager _providerManager;
         private readonly GapFinderLogger _logger;
+        private readonly ProviderCache _cache;
+        private readonly bool _useCache;
 
-        public SeriesScanner(ILibraryManager libraryManager, IProviderManager providerManager, GapFinderLogger logger)
+        /// <param name="cache">Saved provider answers (null = none); new answers are added to it.</param>
+        /// <param name="useCache">false = ask the provider for every series ("Ignore cache").</param>
+        public SeriesScanner(ILibraryManager libraryManager, IProviderManager providerManager, GapFinderLogger logger, ProviderCache cache = null, bool useCache = true)
         {
             _libraryManager = libraryManager;
             _providerManager = providerManager;
             _logger = logger;
+            _cache = cache;
+            _useCache = useCache;
         }
 
         /// <summary>
@@ -129,14 +137,50 @@ namespace GapFinder.Scanning
                 ProviderIds = CopyIds(series.ProviderIds)
             };
 
-            RemoteSearchResult[] remote;
+            List<CachedEpisode> remote;
+            CachedEpisodeList cacheEntry = null;
             try
             {
                 var libraryOptions = _libraryManager.GetLibraryOptions(series);
                 // Same selection as GetAllEpisodes: first enabled ISeriesMetadataProvider of the library.
                 var provider = _providerManager.GetEnabledMetadataProviders(series, libraryOptions).OfType<ISeriesMetadataProvider>().FirstOrDefault();
                 result.EpisodeProvider = EpisodeProviderKey(provider?.Name);
-                remote = await _providerManager.GetAllEpisodes(series, libraryOptions, token).ConfigureAwait(false);
+                var providerSeriesId = result.EpisodeProvider == null ? null : series.GetProviderId(result.EpisodeProvider);
+                var language = LanguageKey(libraryOptions);
+
+                // Ended series: reuse the saved episode list (see CachePolicy) instead of asking the provider again.
+                if (_cache != null && _useCache && _cache.Series.TryGetValue(result.Id, out var cached)
+                    && CachePolicy.CanReuseEpisodes(cached, result.Status, result.EpisodeProvider, providerSeriesId, language, result.Id, DateTime.UtcNow))
+                {
+                    remote = cached.Episodes;
+                    Interlocked.Increment(ref _cache.SeriesReused);
+                }
+                else
+                {
+                    var fetched = await _providerManager.GetAllEpisodes(series, libraryOptions, token).ConfigureAwait(false);
+                    remote = (fetched ?? new RemoteSearchResult[0]).Select(ToCached).ToList();
+                    if (_cache != null)
+                    {
+                        Interlocked.Increment(ref _cache.SeriesFetched);
+                        // Only lists of ended series are reused; others would only fill the file.
+                        if (CachePolicy.IsEnded(result.Status) && remote.Count > 0 && !string.IsNullOrEmpty(providerSeriesId))
+                        {
+                            cacheEntry = new CachedEpisodeList
+                            {
+                                FetchedUtc = DateTime.UtcNow,
+                                Provider = result.EpisodeProvider,
+                                ProviderSeriesId = providerSeriesId,
+                                Language = language,
+                                Status = result.Status,
+                                Episodes = remote
+                            };
+                        }
+                        else
+                        {
+                            _cache.Series.TryRemove(result.Id, out _);
+                        }
+                    }
+                }
             }
             catch (OperationCanceledException)
             {
@@ -149,7 +193,7 @@ namespace GapFinder.Scanning
                 return result;
             }
 
-            if (remote == null || remote.Length == 0)
+            if (remote.Count == 0)
             {
                 result.NoProviderData = true;
                 return result;
@@ -162,13 +206,13 @@ namespace GapFinder.Scanning
             var seenKeys = new HashSet<long>();
             foreach (var episode in remote)
             {
-                if (!episode.IndexNumber.HasValue)
+                if (!episode.Number.HasValue)
                 {
                     continue;
                 }
-                var seasonNumber = episode.ParentIndexNumber ?? 0;
-                var first = episode.IndexNumber.Value;
-                var last = Math.Max(first, episode.IndexNumberEnd ?? first);
+                var seasonNumber = episode.Season ?? 0;
+                var first = episode.Number.Value;
+                var last = Math.Max(first, episode.NumberEnd ?? first);
                 if (!seenKeys.Add(Key(seasonNumber, first)))
                 {
                     continue;
@@ -193,6 +237,11 @@ namespace GapFinder.Scanning
                 if (isPresent)
                 {
                     season.PresentCount++;
+                    if (cacheEntry != null)
+                    {
+                        // The overview is only shown for missing episodes - not kept for present ones.
+                        episode.Overview = null;
+                    }
                 }
                 else
                 {
@@ -200,10 +249,10 @@ namespace GapFinder.Scanning
                     {
                         SeasonNumber = seasonNumber,
                         EpisodeNumber = first,
-                        EpisodeNumberEnd = episode.IndexNumberEnd,
+                        EpisodeNumberEnd = episode.NumberEnd,
                         Name = episode.Name,
                         PremiereDate = episode.PremiereDate,
-                        Overview = Truncate(episode.Overview, 400),
+                        Overview = episode.Overview,
                         ProviderIds = CopyIds(episode.ProviderIds)
                     });
                 }
@@ -215,10 +264,31 @@ namespace GapFinder.Scanning
             }
             result.Seasons = seasons.Values.ToList();
             MarkAssumedAired(result.Seasons, string.Equals(result.Status, "Ended", StringComparison.OrdinalIgnoreCase),
-                remote.Where(e => e.IndexNumber.HasValue).Select(e => (e.ParentIndexNumber ?? 0, e.IndexNumber.Value, e.PremiereDate)),
-                DateTime.UtcNow);
+                remote.Where(e => e.Number.HasValue).Select(e => (e.Season ?? 0, e.Number.Value, e.PremiereDate)),
+                CalendarDate.Today);
+
+            if (cacheEntry != null)
+            {
+                _cache.Series[result.Id] = cacheEntry;
+            }
             return result;
         }
+
+        /// <summary>The provider answer in the form kept in the cache: dates as calendar days, overview shortened.</summary>
+        private static CachedEpisode ToCached(RemoteSearchResult episode) => new CachedEpisode
+        {
+            Season = episode.ParentIndexNumber,
+            Number = episode.IndexNumber,
+            NumberEnd = episode.IndexNumberEnd,
+            Name = episode.Name,
+            PremiereDate = CalendarDate.Normalize(episode.PremiereDate),
+            Overview = Truncate(episode.Overview, 400),
+            ProviderIds = CopyIds(episode.ProviderIds)
+        };
+
+        /// <summary>Metadata language and country - a changed language fetches names again.</summary>
+        internal static string LanguageKey(LibraryOptions options) =>
+            (options?.PreferredMetadataLanguage ?? string.Empty) + "-" + (options?.MetadataCountryCode ?? string.Empty);
 
         /// <summary>
         /// Old series often lack air dates on the provider; Emby then never lists those episodes as missing. A missing
@@ -226,12 +296,13 @@ namespace GapFinder.Scanning
         /// number) has already aired. Specials (season 0) only via "ended", since their order is not meaningful.
         /// </summary>
         public static void MarkAssumedAired(IEnumerable<SeasonResult> seasons, bool ended,
-            IEnumerable<(int Season, int Episode, DateTimeOffset? Date)> providerEpisodes, DateTime todayUtc)
+            IEnumerable<(int Season, int Episode, DateTimeOffset? Date)> providerEpisodes, DateTime today)
         {
             long? latestAired = null;
             foreach (var e in providerEpisodes)
             {
-                if (e.Season > 0 && e.Date.HasValue && e.Date.Value.UtcDateTime.Date <= todayUtc.Date)
+                // Dates are normalized calendar days (UTC midnight, see CalendarDate); today is server-local.
+                if (e.Season > 0 && e.Date.HasValue && e.Date.Value.UtcDateTime.Date <= today.Date)
                 {
                     var key = Key(e.Season, e.Episode);
                     if (!latestAired.HasValue || key > latestAired.Value)

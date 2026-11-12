@@ -60,8 +60,8 @@
             if (!value) { return ''; }
             var d = new Date(value);
             if (isNaN(d.getTime())) { return ''; }
-            // Provider dates are plain calendar dates (UTC midnight) - show them in UTC, otherwise the day shifts
-            // back by one west of UTC.
+            // The server sends calendar days at UTC midnight (CalendarDate.Normalize) - show them in UTC, otherwise
+            // the day shifts back by one west of UTC.
             return d.toLocaleDateString(state.dateTimeLocale || undefined, { timeZone: 'UTC', year: 'numeric', month: '2-digit', day: '2-digit' });
         }
 
@@ -100,12 +100,15 @@
             }
         }
 
-        // Same rule as ResultFilter.IsReleased: date (UTC) today or earlier.
+        // Same rule as ResultFilter.IsReleased: the calendar day is today or earlier. The server sends dates as
+        // calendar days at UTC midnight (CalendarDate.Normalize); "today" is the browser's local day.
         function isReleased(value) {
             if (!value) { return false; }
             var d = new Date(value);
             if (isNaN(d.getTime())) { return false; }
-            return d.toISOString().slice(0, 10) <= new Date().toISOString().slice(0, 10);
+            var now = new Date();
+            var today = now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0') + '-' + String(now.getDate()).padStart(2, '0');
+            return d.toISOString().slice(0, 10) <= today;
         }
 
         // Rounded normally, but 100 % only when nothing is missing (399 of 401 would be 100 % otherwise),
@@ -230,10 +233,13 @@
                 ScanSeries: state.mode !== 'movies',
                 ScanMovies: state.mode !== 'series',
                 LibraryIds: Array.from(state.selectedLibraryIds),
-                MaxParallelRequests: parseInt($('#gfParallel').value, 10) || 3
+                MaxParallelRequests: parseInt($('#gfParallel').value, 10) || 3,
+                IgnoreCache: $('#gfIgnoreCache').checked
             };
             $('#gfStartBtn').disabled = true;
             apiPost('GapFinder/Scan', body).then(function (status) {
+                // A one-off choice: the next search uses the saved answers again.
+                $('#gfIgnoreCache').checked = false;
                 applyStatus(status);
                 startPolling();
             }).catch(function (err) {

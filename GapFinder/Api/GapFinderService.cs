@@ -318,7 +318,8 @@ namespace GapFinder.Api
                 ScanSeries = request.ScanSeries,
                 ScanMovies = request.ScanMovies,
                 LibraryIds = request.LibraryIds,
-                MaxParallel = maxParallel
+                MaxParallel = maxParallel,
+                IgnoreCache = request.IgnoreCache
             }, _libraryManager, _providerManager, _fileSystem, _store, _logger);
 
             if (!started)
@@ -694,7 +695,7 @@ namespace GapFinder.Api
         }
 
         private static string FormatDate(DateTimeOffset? date) =>
-            date?.UtcDateTime.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
+            date.HasValue ? CalendarDate.Of(date.Value).ToString("yyyy-MM-dd", CultureInfo.InvariantCulture) : null;
 
         private static string GetId(Dictionary<string, string> ids, string key) =>
             ids != null && ids.TryGetValue(key, out var value) ? value : null;
