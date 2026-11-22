@@ -11,6 +11,10 @@ Gap Finder is a dashboard page for administrators. You start a search, and the r
 (Series and Movie collections), with filters, an ignore list, CSV/JSON export and optional Sonarr/Radarr
 integration.
 
+<p align="center">
+  <img src="assets/gapfinder-preview.webp" alt="Gap Finder preview" width="880">
+</p>
+
 ## Requirements
 
 - Emby Server **4.10** or newer (built against SDK 4.10.0.24)
